@@ -8,6 +8,7 @@
 #define _LINUX_IOMMU_DMA_H
 
 #include <linux/dma-direction.h>
+#include <linux/dma-mapping.h>
 
 #ifdef CONFIG_IOMMU_DMA
 static inline bool use_dma_iommu(struct device *dev)
@@ -65,5 +66,7 @@ void iommu_dma_sync_sg_for_cpu(struct device *dev, struct scatterlist *sgl,
 		int nelems, enum dma_data_direction dir);
 void iommu_dma_sync_sg_for_device(struct device *dev, struct scatterlist *sgl,
 		int nelems, enum dma_data_direction dir);
-
+dma_addr_t iommu_dma_alloc_iova(struct dma_iova_state *state, phys_addr_t phys,
+		size_t size);
+void iommu_dma_free_iova(struct dma_iova_state *state);
 #endif /* _LINUX_IOMMU_DMA_H */
