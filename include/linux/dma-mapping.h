@@ -78,6 +78,8 @@
 
 struct dma_iova_state {
 	struct device *dev;
+	dma_addr_t addr;
+	size_t size;
 	enum dma_data_direction dir;
 	u8 use_iova : 1;
 };
