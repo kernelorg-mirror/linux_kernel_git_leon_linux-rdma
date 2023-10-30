@@ -81,6 +81,7 @@ struct dma_iova_state {
 	dma_addr_t addr;
 	size_t size;
 	enum dma_data_direction dir;
+	size_t range_size;
 };
 
 static inline void dma_init_iova_state(struct dma_iova_state *state,

@@ -69,4 +69,12 @@ void iommu_dma_sync_sg_for_device(struct device *dev, struct scatterlist *sgl,
 dma_addr_t iommu_dma_alloc_iova(struct dma_iova_state *state, phys_addr_t phys,
 		size_t size);
 void iommu_dma_free_iova(struct dma_iova_state *state);
+void iommu_dma_destroy_iova(struct dma_iova_state *state, dma_addr_t start,
+		size_t size);
+int iommu_dma_start_range(struct device *dev);
+void iommu_dma_end_range(struct device *dev);
+int iommu_dma_link_range(struct dma_iova_state *state, phys_addr_t phys,
+		dma_addr_t dma_offset, size_t size, unsigned long attrs);
+void iommu_dma_unlink_range(struct dma_iova_state *state, dma_addr_t dma_offset,
+		size_t size, unsigned long attrs);
 #endif /* _LINUX_IOMMU_DMA_H */
