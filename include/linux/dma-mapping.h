@@ -80,6 +80,7 @@ struct dma_iova_state {
 	dma_addr_t addr;
 	size_t size;
 	bool use_iova : 1;
+	bool use_swiotlb : 1;
 };
 
 /**
