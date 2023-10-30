@@ -1777,6 +1777,92 @@ void iommu_dma_free_iova(struct dma_iova_state *state)
 			      &iotlb_gather);
 }
 
+int iommu_dma_start_range(struct device *dev)
+{
+	struct iommu_domain *domain = iommu_get_dma_domain(dev);
+
+	if (static_branch_unlikely(&iommu_deferred_attach_enabled))
+		return iommu_deferred_attach(dev, domain);
+
+	return 0;
+}
+
+void iommu_dma_end_range(struct device *dev)
+{
+	/* TODO: Factor out ops->iotlb_sync_map(..) call from iommu_map()
+	 * and put it here to provide batched iotlb sync for the range.
+	 */
+}
+
+dma_addr_t iommu_dma_link_range(struct dma_iova_state *state, phys_addr_t phys,
+				size_t size, unsigned long attrs)
+{
+	struct iommu_domain *domain = iommu_get_dma_domain(state->dev);
+	struct iommu_dma_cookie *cookie = domain->iova_cookie;
+	struct iova_domain *iovad = &cookie->iovad;
+	size_t iova_off = iova_offset(iovad, phys);
+	bool coherent = dev_is_dma_coherent(state->dev);
+	int prot = dma_info_to_prot(state->dir, coherent, attrs);
+	dma_addr_t addr = state->addr + state->range_size;
+	int ret;
+
+	WARN_ON_ONCE(iova_off && state->range_size > 0);
+
+	if (!coherent && !(attrs & DMA_ATTR_SKIP_CPU_SYNC))
+		arch_sync_dma_for_device(phys, size, state->dir);
+
+	size = iova_align(iovad, size + iova_off);
+	ret = iommu_map(domain, addr, phys - iova_off, size, prot, GFP_ATOMIC);
+	if (ret)
+		return ret;
+
+	state->range_size += size;
+	return addr + iova_off;
+}
+
+static void iommu_sync_dma_for_cpu(struct iommu_domain *domain,
+				   dma_addr_t start, size_t size,
+				   enum dma_data_direction dir)
+{
+	size_t sync_size, unmapped = 0;
+	phys_addr_t phys;
+
+	do {
+		phys = iommu_iova_to_phys(domain, start + unmapped);
+		if (WARN_ON(!phys))
+			continue;
+
+		sync_size = (unmapped + PAGE_SIZE > size) ? size % PAGE_SIZE :
+							    PAGE_SIZE;
+		arch_sync_dma_for_cpu(phys, sync_size, dir);
+		unmapped += sync_size;
+	} while (unmapped < size);
+}
+
+void iommu_dma_unlink_range(struct device *dev, dma_addr_t start, size_t size,
+			    enum dma_data_direction dir, unsigned long attrs)
+{
+	struct iommu_domain *domain = iommu_get_dma_domain(dev);
+	struct iommu_dma_cookie *cookie = domain->iova_cookie;
+	struct iova_domain *iovad = &cookie->iovad;
+	struct iommu_iotlb_gather iotlb_gather;
+	bool coherent = dev_is_dma_coherent(dev);
+	size_t unmapped;
+
+	iommu_iotlb_gather_init(&iotlb_gather);
+	iotlb_gather.queued = READ_ONCE(cookie->fq_domain);
+
+	if (!(attrs & DMA_ATTR_SKIP_CPU_SYNC) && !coherent)
+		iommu_sync_dma_for_cpu(domain, start, size, dir);
+
+	size = iova_align(iovad, size);
+	unmapped = iommu_unmap_fast(domain, start, size, &iotlb_gather);
+	WARN_ON(unmapped != size);
+
+	if (!iotlb_gather.queued)
+		iommu_iotlb_sync(domain, &iotlb_gather);
+}
+
 void iommu_setup_dma_ops(struct device *dev)
 {
 	struct iommu_domain *domain = iommu_get_domain_for_dev(dev);
