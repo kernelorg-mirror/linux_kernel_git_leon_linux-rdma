@@ -1119,7 +1119,7 @@ dma_addr_t dma_hmm_link_page(struct dma_iova_state *state, unsigned long *pfn,
 	struct page *page = hmm_pfn_to_page(*pfn);
 	phys_addr_t phys = page_to_phys(page);
 	bool coherent = dev_is_dma_coherent(dev);
-	dma_addr_t addr;
+	dma_addr_t addr = phys_to_dma(dev, phys);
 	int ret;
 
 	if (*pfn & HMM_PFN_DMA_MAPPED)
@@ -1134,8 +1134,7 @@ dma_addr_t dma_hmm_link_page(struct dma_iova_state *state, unsigned long *pfn,
 		 * The DMA address calculation below is based on the fact that
 		 * HMM doesn't work with swiotlb.
 		 */
-		return (state->addr) ? state->addr + dma_offset :
-				       phys_to_dma(dev, phys);
+		return (state->addr) ? state->addr + dma_offset : addr;
 
 	state->range_size = dma_offset;
 
@@ -1147,8 +1146,6 @@ dma_addr_t dma_hmm_link_page(struct dma_iova_state *state, unsigned long *pfn,
 	if (!use_dma_iommu(dev)) {
 		if (!coherent)
 			arch_sync_dma_for_device(phys, PAGE_SIZE, state->dir);
-
-		addr = phys_to_dma(dev, phys);
 		goto done;
 	}
 
