@@ -164,8 +164,9 @@ static void populate_mtt(__be64 *pas, size_t idx, size_t nentries,
 {
 	struct ib_umem_odp *odp = to_ib_umem_odp(mr->umem);
 	bool downgrade = flags & MLX5_IB_UPD_XLT_DOWNGRADE;
+	struct ib_device *dev = odp->umem.ibdev;
+	dma_addr_t addr = DMA_MAPPING_ERROR, pa;
 	unsigned long pfn;
-	dma_addr_t pa;
 	size_t i;
 
 	if (flags & MLX5_IB_UPD_XLT_ZAP)
@@ -177,12 +178,22 @@ static void populate_mtt(__be64 *pas, size_t idx, size_t nentries,
 			/* Initial ODP init */
 			continue;
 
-		pa = odp->dma_list[idx + i];
+		if (odp->dma_list)
+			addr = odp->dma_list[idx + i];
+
+		pa = hmm_dma_map_pfn(&odp->state, &odp->pfn_list[idx + i],
+				     (idx + i) * (1 << odp->page_shift), addr);
+		WARN_ON_ONCE(ib_dma_mapping_error(dev, pa));
+		if (odp->dma_list)
+			/* We are in non-IOVA case */
+			odp->dma_list[idx + i] = pa;
+
 		pa |= MLX5_IB_MTT_READ;
 		if ((pfn & HMM_PFN_WRITE) && !downgrade)
 			pa |= MLX5_IB_MTT_WRITE;
 
 		pas[i] = cpu_to_be64(pa);
+		odp->npages++;
 	}
 }
 
