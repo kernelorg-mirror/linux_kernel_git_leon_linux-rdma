@@ -615,3 +615,84 @@ int hmm_range_fault(struct hmm_range *range)
 	return ret;
 }
 EXPORT_SYMBOL(hmm_range_fault);
+
+/**
+ * hmm_dma_map_pfn - Map a physical HMM page to DMA address
+ * @dev: Device to map the page for
+ * @state: IOVA state
+ * @pfn: HMM PFN
+ * @offset: IOVA offset to which this page needs to be linked
+ * @addr: DMA address in case it is not IOVA path
+ *
+ * dma_alloc_iova() allocates IOVA based on the size specified by their use in
+ * iova->size. Call this function after IOVA allocation to link whole @page
+ * to get the DMA address. Note that very first call to this function
+ * will have @offset set to 0 in the IOVA space allocated from
+ * dma_alloc_iova(). For subsequent calls to this function on same @iova,
+ * @offset needs to be advanced by the caller with the size of previous
+ * page that was linked + DMA address returned for the previous page that was
+ * linked by this function.
+ */
+dma_addr_t hmm_dma_map_pfn(struct device *dev, struct dma_iova_state *state,
+			   unsigned long *pfn, size_t offset, dma_addr_t addr)
+{
+	dma_addr_t dma_addr;
+	int ret;
+
+	if (*pfn & HMM_PFN_DMA_MAPPED) {
+		/*
+		 * We are in this flow when there is a need to resync flags,
+		 * for example when page was already linked in prefetch call
+		 * with READ flag and now we need to add WRITE flag
+		 *
+		 * This page was already programmed to HW and we don't want/need
+		 * to unlink and link it again just to resync flags.
+		 */
+		if (dma_can_use_iova(state))
+			return state->addr + offset;
+
+		WARN_ON_ONCE(addr == DMA_MAPPING_ERROR);
+		return addr;
+	}
+
+	if (dma_can_use_iova(state)) {
+		ret = dma_iova_link(dev, state, hmm_pfn_to_phys(*pfn), offset,
+				    PAGE_SIZE, DMA_BIDIRECTIONAL, 0);
+		if (ret)
+			return DMA_MAPPING_ERROR;
+
+		dma_addr = state->addr + offset;
+	} else {
+		dma_addr = dma_map_page(dev, hmm_pfn_to_page(*pfn), 0,
+					PAGE_SIZE, DMA_BIDIRECTIONAL);
+		if (dma_mapping_error(dev, dma_addr))
+			return DMA_MAPPING_ERROR;
+	}
+
+	*pfn |= HMM_PFN_DMA_MAPPED;
+	return dma_addr;
+}
+EXPORT_SYMBOL_GPL(hmm_dma_map_pfn);
+
+/**
+ * hmm_dma_unmap_pfn - Unmap a physical HMM page from DMA address
+ * @dev: Device to unmap the page from
+ * @state: IOVA state
+ * @pfn: HMM PFN
+ * @offset: IOVA offset form which this page needs to be unlinked
+ * @addr: DMA address in case it is not IOVA path
+ */
+void hmm_dma_unmap_pfn(struct device *dev, struct dma_iova_state *state,
+		       unsigned long *pfn, size_t offset, dma_addr_t addr)
+{
+	*pfn &= ~HMM_PFN_DMA_MAPPED;
+	if (dma_can_use_iova(state)) {
+		WARN_ON_ONCE(addr != DMA_MAPPING_ERROR);
+		dma_iova_unlink(dev, state, offset, PAGE_SIZE,
+				DMA_BIDIRECTIONAL, 0);
+		return;
+	}
+
+	dma_unmap_page(dev, addr, PAGE_SIZE, DMA_BIDIRECTIONAL);
+}
+EXPORT_SYMBOL_GPL(hmm_dma_unmap_pfn);
