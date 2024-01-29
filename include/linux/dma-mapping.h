@@ -125,6 +125,10 @@ dma_addr_t dma_alloc_iova(struct dma_iova_state *state, phys_addr_t phys,
 void dma_free_iova(struct dma_iova_state *state);
 void dma_destroy_iova(struct dma_iova_state *state, dma_addr_t dma_addr,
 		size_t size);
+dma_addr_t dma_hmm_link_page(struct dma_iova_state *state, unsigned long *pfn,
+			     dma_addr_t dma_offset);
+void dma_hmm_unlink_page(struct dma_iova_state *state, unsigned long *pfn,
+			 dma_addr_t dma_offset);
 dma_addr_t dma_map_page_attrs(struct device *dev, struct page *page,
 		size_t offset, size_t size, enum dma_data_direction dir,
 		unsigned long attrs);
@@ -191,6 +195,17 @@ static inline void dma_free_iova(struct dma_iova_state *state)
 }
 static inline void dma_destroy_iova(struct dma_iova_state *state,
 		dma_addr_t dma_addr, size_t size)
+{
+}
+static inline dma_addr_t dma_hmm_link_page(struct dma_iova_state *state,
+					   unsigned long *pfn,
+					   dma_addr_t dma_offset)
+{
+	return DMA_MAPPING_ERROR;
+}
+static inline void dma_hmm_unlink_page(struct dma_iova_state *state,
+				       unsigned long *pfn,
+				       dma_addr_t dma_offset)
 {
 }
 static inline dma_addr_t dma_map_page_attrs(struct device *dev,
