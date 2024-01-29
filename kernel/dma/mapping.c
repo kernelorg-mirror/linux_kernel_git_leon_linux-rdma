@@ -962,3 +962,38 @@ unsigned long dma_get_merge_boundary(struct device *dev)
 	return ops->get_merge_boundary(dev);
 }
 EXPORT_SYMBOL_GPL(dma_get_merge_boundary);
+
+/**
+ * dma_alloc_iova_unaligned - Allocate an IOVA space
+ * @state: IOVA state
+ * @phys: physical address
+ * @size: IOVA size
+ *
+ * Allocate an IOVA space for the given IOVA state and size. The IOVA space
+ * is allocated to the worst case when whole range is going to be used.
+ */
+int dma_alloc_iova_unaligned(struct dma_iova_state *state, phys_addr_t phys,
+			     size_t size)
+{
+	if (!use_dma_iommu(state->dev))
+		return 0;
+
+	WARN_ON_ONCE(!size);
+	return iommu_dma_alloc_iova(state, phys, size);
+}
+EXPORT_SYMBOL_GPL(dma_alloc_iova_unaligned);
+
+/**
+ * dma_free_iova - Free an IOVA space
+ * @state: IOVA state
+ *
+ * Free an IOVA space for the given IOVA attributes.
+ */
+void dma_free_iova(struct dma_iova_state *state)
+{
+	if (!use_dma_iommu(state->dev))
+		return;
+
+	iommu_dma_free_iova(state);
+}
+EXPORT_SYMBOL_GPL(dma_free_iova);
