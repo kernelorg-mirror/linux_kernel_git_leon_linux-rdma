@@ -1883,6 +1883,7 @@ bool iommu_can_use_iova(struct device *dev, struct page *page, size_t size,
 
 	return true;
 }
+EXPORT_SYMBOL_GPL(iommu_can_use_iova);
 
 void iommu_setup_dma_ops(struct device *dev)
 {
