@@ -82,6 +82,7 @@ struct dma_iova_state {
 	size_t size;
 	enum dma_data_direction dir;
 	size_t range_size;
+	u8 use_iova : 1;
 };
 
 static inline void dma_init_iova_state(struct dma_iova_state *state,
@@ -169,6 +170,9 @@ void *dma_vmap_noncontiguous(struct device *dev, size_t size,
 void dma_vunmap_noncontiguous(struct device *dev, void *vaddr);
 int dma_mmap_noncontiguous(struct device *dev, struct vm_area_struct *vma,
 		size_t size, struct sg_table *sgt);
+void dma_set_iova_state(struct dma_iova_state *state, struct page *page,
+			size_t size);
+bool dma_can_use_iova(struct dma_iova_state *state);
 #else /* CONFIG_HAS_DMA */
 static inline dma_addr_t dma_alloc_iova(struct dma_iova_state *state,
 			  phys_addr_t phys, size_t size)
@@ -306,6 +310,14 @@ static inline int dma_mmap_noncontiguous(struct device *dev,
 		struct vm_area_struct *vma, size_t size, struct sg_table *sgt)
 {
 	return -EINVAL;
+}
+static inline void dma_set_iova_state(struct dma_iova_state *state,
+				      struct page *page, size_t size)
+{
+}
+static inline bool dma_can_use_iova(struct dma_iova_state *state)
+{
+	return false;
 }
 #endif /* CONFIG_HAS_DMA */
 

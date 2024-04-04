@@ -6,6 +6,7 @@
  * Copyright (c) 2006  Tejun Heo <teheo@suse.de>
  */
 #include <linux/memblock.h> /* for max_pfn */
+#include <linux/memremap.h>
 #include <linux/acpi.h>
 #include <linux/dma-map-ops.h>
 #include <linux/export.h>
@@ -15,6 +16,7 @@
 #include <linux/of_device.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
+#include <linux/cc_platform.h>
 #include "debug.h"
 #include "direct.h"
 
@@ -1010,3 +1012,39 @@ void dma_free_iova(struct dma_iova_state *state)
 	iommu_dma_free_iova(state);
 }
 EXPORT_SYMBOL_GPL(dma_free_iova);
+
+/**
+ * dma_set_iova_state - Set the IOVA state for the given page and size
+ * @state: IOVA state
+ * @page: page to check
+ * @size: size of the page
+ *
+ * Set the IOVA state for the given page and size. The IOVA state is set
+ * based on the device and the page.
+ */
+void dma_set_iova_state(struct dma_iova_state *state, struct page *page,
+			size_t size)
+{
+	if (!use_dma_iommu(state->dev))
+		return;
+
+	state->use_iova = iommu_can_use_iova(state->dev, page, size, state->dir);
+}
+EXPORT_SYMBOL_GPL(dma_set_iova_state);
+
+/**
+ * dma_can_use_iova - check if the device type is valid
+ *                    and won't take SWIOTLB path
+ * @state: IOVA state
+ *
+ * Return %true if the device should use swiotlb for the given buffer, else
+ * %false.
+ */
+bool dma_can_use_iova(struct dma_iova_state *state)
+{
+	if (!use_dma_iommu(state->dev))
+		return false;
+
+	return state->use_iova;
+}
+EXPORT_SYMBOL_GPL(dma_can_use_iova);
