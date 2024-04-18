@@ -1035,3 +1035,63 @@ bool dma_can_use_iova(struct dma_iova_state *state)
 	return state->use_iova;
 }
 EXPORT_SYMBOL_GPL(dma_can_use_iova);
+
+/**
+ * dma_start_range - Start a range of IOVA space
+ * @state: IOVA state
+ *
+ * Start a range of IOVA space for the given IOVA state.
+ */
+int dma_start_range(struct dma_iova_state *state)
+{
+	if (!state->use_iova)
+		return 0;
+
+	return iommu_dma_start_range(state->dev);
+}
+EXPORT_SYMBOL_GPL(dma_start_range);
+
+/**
+ * dma_end_range - End a range of IOVA space
+ * @state: IOVA state
+ *
+ * End a range of IOVA space for the given IOVA state.
+ */
+void dma_end_range(struct dma_iova_state *state)
+{
+	if (!state->use_iova)
+		return;
+
+	iommu_dma_end_range(state->dev);
+}
+EXPORT_SYMBOL_GPL(dma_end_range);
+
+/**
+ * dma_link_range_attrs - Link a range of IOVA space
+ * @state: IOVA state
+ * @phys: physical address to link
+ * @size: size of the buffer
+ * @attrs: attributes of mapping properties
+ *
+ * Link a range of IOVA space for the given IOVA state.
+ */
+dma_addr_t dma_link_range_attrs(struct dma_iova_state *state, phys_addr_t phys,
+				size_t size, unsigned long attrs)
+{
+	return iommu_dma_link_range(state, phys, size, attrs);
+}
+EXPORT_SYMBOL_GPL(dma_link_range_attrs);
+
+/**
+ * dma_unlink_range_attrs - Unlink a range of IOVA space
+ * @state: IOVA state
+ * @attrs: attributes of mapping properties
+ *
+ * Unlink a range of IOVA space for the given IOVA state.
+ */
+void dma_unlink_range_attrs(struct dma_iova_state *state, unsigned long attrs)
+{
+	iommu_dma_unlink_range(state->dev, state->addr, state->range_size,
+			       state->dir, attrs);
+}
+EXPORT_SYMBOL_GPL(dma_unlink_range_attrs);

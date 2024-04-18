@@ -11,6 +11,7 @@
 #include <linux/scatterlist.h>
 #include <linux/bug.h>
 #include <linux/mem_encrypt.h>
+#include <linux/iommu.h>
 
 /**
  * List of possible attributes associated with a DMA mapping. The semantics
@@ -174,6 +175,11 @@ int dma_mmap_noncontiguous(struct device *dev, struct vm_area_struct *vma,
 void dma_set_iova_state(struct dma_iova_state *state, struct page *page,
 			size_t size);
 bool dma_can_use_iova(struct dma_iova_state *state);
+int dma_start_range(struct dma_iova_state *state);
+void dma_end_range(struct dma_iova_state *state);
+dma_addr_t dma_link_range_attrs(struct dma_iova_state *state, phys_addr_t phys,
+				size_t size, unsigned long attrs);
+void dma_unlink_range_attrs(struct dma_iova_state *state, unsigned long attrs);
 #else /* CONFIG_HAS_DMA */
 static inline int dma_alloc_iova_unaligned(struct dma_iova_state *state,
 					   phys_addr_t phys, size_t size)
@@ -319,6 +325,23 @@ static inline void dma_set_iova_state(struct dma_iova_state *state,
 static inline bool dma_can_use_iova(struct dma_iova_state *state)
 {
 	return false;
+}
+static inline int dma_start_range(struct dma_iova_state *state)
+{
+	return -EOPNOTSUPP;
+}
+static inline void dma_end_range(struct dma_iova_state *state)
+{
+}
+static inline dma_addr_t dma_link_range_attrs(struct dma_iova_state *state,
+					      phys_addr_t phys, size_t size,
+					      unsigned long attrs)
+{
+	return DMA_MAPPING_ERROR;
+}
+static inline void dma_unlink_range_attrs(struct dma_iova_state *state,
+					  unsigned long attrs)
+{
 }
 #endif /* CONFIG_HAS_DMA */
 
@@ -514,6 +537,8 @@ static inline void dma_sync_sgtable_for_device(struct device *dev,
 #define dma_unmap_page(d, a, s, r) dma_unmap_page_attrs(d, a, s, r, 0)
 #define dma_get_sgtable(d, t, v, h, s) dma_get_sgtable_attrs(d, t, v, h, s, 0)
 #define dma_mmap_coherent(d, v, c, h, s) dma_mmap_attrs(d, v, c, h, s, 0)
+#define dma_link_range(d, p, o) dma_link_range_attrs(d, p, o, 0)
+#define dma_unlink_range(d) dma_unlink_range_attrs(d, 0)
 
 bool dma_coherent_ok(struct device *dev, phys_addr_t phys, size_t size);
 
