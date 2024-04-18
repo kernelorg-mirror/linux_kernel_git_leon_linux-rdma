@@ -1022,3 +1022,128 @@ void dma_iova_free(struct device *dev, struct dma_iova_state *state)
 	iommu_dma_iova_free(dev, state);
 }
 EXPORT_SYMBOL_GPL(dma_iova_free);
+
+/**
+ * dma_iova_destroy - Finish a DMA mapping transaction
+ * @dev: DMA device
+ * @state: IOVA state
+ * @dma_addr: First linked IOVA address
+ * @size: Size to unlink
+ * @dir: DMA direction
+ *
+ * Unlink whole IOVA range and free an IOVA space. The range of IOVA from
+ * dma_addr to size must all be linked, and be the only linked IOVA in state
+ */
+void dma_iova_destroy(struct device *dev, struct dma_iova_state *state,
+		dma_addr_t dma_addr, size_t size, enum dma_data_direction dir)
+{
+	if (!use_dma_iommu(dev))
+		return;
+
+	iommu_dma_iova_destroy(dev, state, dma_addr, size, dir);
+}
+EXPORT_SYMBOL_GPL(dma_iova_destroy);
+
+/**
+ * dma_iova_link_next - Link a range of IOVA space without IOTLB sync
+ * @dev: DMA device
+ * @state: IOVA state
+ * @phys: physical address to link
+ * @size: size of the buffer
+ * @dir: DMA direction
+ * @attrs: attributes of mapping properties
+ *
+ * Link a range of IOVA space for the given IOVA state without IOTLB sync.
+ * This function is used to link multiple physical addresses in contigueous
+ * IOVA space without performing costly IOTLB sync.
+ *
+ * The caller is responsible to call to dma_iova_sync() to sync IOTLB at
+ * the end of linkage.
+ */
+int dma_iova_link_next(struct device *dev, struct dma_iova_state *state,
+		phys_addr_t phys, size_t size, enum dma_data_direction dir,
+		unsigned long attrs)
+{
+	if (WARN_ON_ONCE(!dma_can_use_iova(state)))
+		return -EINVAL;
+
+	return iommu_dma_iova_link_nosync(dev, state, phys, state->mapped_size,
+			size, dir, attrs);
+}
+EXPORT_SYMBOL_GPL(dma_iova_link_next);
+
+/**
+ * dma_iova_sync - Sync IOTLB
+ * @dev: DMA device
+ * @state: IOVA state
+ * @size: size of the buffer
+ * @ret: return value from the last IOVA operation
+ *
+ * Sync IOTLB for the given IOVA state. This function should be called
+ * after last dma_iova_link_next() to sync IOTLB and it works on contigueous
+ * mapping only.
+ */
+int dma_iova_sync(struct device *dev, struct dma_iova_state *state,
+		size_t size, int ret)
+{
+	if (WARN_ON_ONCE(!dma_can_use_iova(state)))
+		return -EINVAL;
+
+	return iommu_dma_iova_sync(dev, state, state->addr, size, ret);
+}
+EXPORT_SYMBOL_GPL(dma_iova_sync);
+
+/**
+ * dma_iova_link - Link a range of IOVA space
+ * @dev: DMA device
+ * @state: IOVA state
+ * @phys: physical address to link
+ * @offset: offset into the IOVA state to map into
+ * @size: size of the buffer
+ * @dir: DMA direction
+ * @attrs: attributes of mapping properties
+ *
+ * Link a range of IOVA space for the given IOVA state.
+ *
+ * Returns -ERMOTEIO if the range requires bounce buffering or points to
+ * P2P memory.  In this case the callers needs to call dma_map_page()
+ * directly for the range.
+ */
+int dma_iova_link(struct device *dev, struct dma_iova_state *state,
+		phys_addr_t phys, size_t offset, size_t size,
+		enum dma_data_direction dir, unsigned long attrs)
+{
+	int ret;
+
+	if (WARN_ON_ONCE(!dma_can_use_iova(state)))
+		return -EINVAL;
+
+	ret = iommu_dma_iova_link_nosync(dev, state, phys, offset, size, dir,
+			attrs);
+	if (ret)
+		return ret;
+	return iommu_dma_iova_sync(dev, state, state->addr + offset, size, 0);
+}
+EXPORT_SYMBOL_GPL(dma_iova_link);
+
+/**
+ * dma_iova_unlink - Unlink a range of IOVA space
+ * @dev: DMA device
+ * @state: IOVA state
+ * @offset: offset into the IOVA state to unlink
+ * @size: size of the buffer
+ * @dir: DMA direction
+ * @attrs: attributes of mapping properties
+ *
+ * Unlink a range of IOVA space for the given IOVA state.
+ */
+void dma_iova_unlink(struct device *dev, struct dma_iova_state *state,
+		size_t offset, size_t size, enum dma_data_direction dir,
+		unsigned long attrs)
+{
+	if (WARN_ON_ONCE(!dma_can_use_iova(state)))
+		return;
+
+	iommu_dma_iova_unlink(dev, state, offset, size, dir, attrs);
+}
+EXPORT_SYMBOL_GPL(dma_iova_unlink);
