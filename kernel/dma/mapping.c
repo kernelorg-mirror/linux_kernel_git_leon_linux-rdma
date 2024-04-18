@@ -1026,3 +1026,64 @@ void dma_free_iova(struct dma_iova_state *state)
 	iommu_dma_free_iova(state);
 }
 EXPORT_SYMBOL_GPL(dma_free_iova);
+
+/**
+ * dma_destroy_iova - Destroy IOVA range
+ * @state: IOVA state
+ * @dma_addr: First linked IOVA address
+ * @size: Size to unlink
+ *
+ * Unlink whole IOVA range and free an IOVA space
+ */
+void dma_destroy_iova(struct dma_iova_state *state, dma_addr_t dma_addr,
+		      size_t size)
+{
+	if (!use_dma_iommu(state->dev))
+		return;
+
+	iommu_dma_destroy_iova(state, dma_addr, size);
+}
+EXPORT_SYMBOL_GPL(dma_destroy_iova);
+
+/**
+ * dma_link_range - Link a range of IOVA space
+ * @state: IOVA state
+ * @phys: physical address to link
+ * @offset: offset into the IOVA state to map into
+ * @size: size of the buffer
+ * @attrs: attributes of mapping properties
+ *
+ * Link a range of IOVA space for the given IOVA state.
+ *
+ * Returns -ERMOTEIO if the range requires bounce buffering or points to
+ * P2P memory.  In this case the callers needs to call dma_map_page()
+ * directly for the range.
+ */
+int dma_link_range(struct dma_iova_state *state, phys_addr_t phys,
+		size_t offset, size_t size, unsigned long attrs)
+{
+	if (WARN_ON_ONCE(!dma_can_use_iova(state)))
+		return -EINVAL;
+
+	return iommu_dma_link_range(state, phys, offset, size, attrs);
+}
+EXPORT_SYMBOL_GPL(dma_link_range);
+
+/**
+ * dma_unlink_range - Unlink a range of IOVA space
+ * @state: IOVA state
+ * @offset: offset into the IOVA state to unlink
+ * @size: size of the buffer
+ * @attrs: attributes of mapping properties
+ *
+ * Unlink a range of IOVA space for the given IOVA state.
+ */
+void dma_unlink_range(struct dma_iova_state *state, size_t offset, size_t size,
+		unsigned long attrs)
+{
+	if (WARN_ON_ONCE(!dma_can_use_iova(state)))
+		return;
+
+	iommu_dma_unlink_range(state, offset, size, attrs);
+}
+EXPORT_SYMBOL_GPL(dma_unlink_range);
