@@ -11,6 +11,7 @@
 #include <linux/scatterlist.h>
 #include <linux/bug.h>
 #include <linux/mem_encrypt.h>
+#include <linux/iommu.h>
 
 /**
  * List of possible attributes associated with a DMA mapping. The semantics
@@ -127,6 +128,8 @@ void dma_init_iova_state(struct dma_iova_state *state,
 dma_addr_t dma_alloc_iova(struct dma_iova_state *state, phys_addr_t phys,
 		size_t size);
 void dma_free_iova(struct dma_iova_state *state);
+void dma_destroy_iova(struct dma_iova_state *state, dma_addr_t dma_addr,
+		size_t size);
 dma_addr_t dma_map_page_attrs(struct device *dev, struct page *page,
 		size_t offset, size_t size, enum dma_data_direction dir,
 		unsigned long attrs);
@@ -175,6 +178,8 @@ void *dma_vmap_noncontiguous(struct device *dev, size_t size,
 void dma_vunmap_noncontiguous(struct device *dev, void *vaddr);
 int dma_mmap_noncontiguous(struct device *dev, struct vm_area_struct *vma,
 		size_t size, struct sg_table *sgt);
+int dma_link_range_attrs(struct dma_iova_state *state, phys_addr_t phys,
+		size_t size, unsigned long attrs);
 #else /* CONFIG_HAS_DMA */
 static inline dma_addr_t dma_alloc_iova(struct dma_iova_state *state,
 			  phys_addr_t phys, size_t size)
@@ -182,6 +187,10 @@ static inline dma_addr_t dma_alloc_iova(struct dma_iova_state *state,
 	return DMA_MAPPING_ERROR;
 }
 static inline void dma_free_iova(struct dma_iova_state *state)
+{
+}
+static inline void dma_destroy_iova(struct dma_iova_state *state,
+		dma_addr_t dma_addr, size_t size)
 {
 }
 static inline dma_addr_t dma_map_page_attrs(struct device *dev,
@@ -316,6 +325,11 @@ static inline int dma_mmap_noncontiguous(struct device *dev,
 static inline void dma_init_iova_state(struct dma_iova_state *state,
 		struct device *dev, enum dma_data_direction dir)
 {
+}
+static inline int dma_link_range_attrs(struct dma_iova_state *state,
+		       phys_addr_t phys, size_t size, unsigned long attrs)
+{
+	return -EOPNOTSUPP;
 }
 #endif /* CONFIG_HAS_DMA */
 
@@ -506,6 +520,7 @@ static inline void dma_sync_sgtable_for_device(struct device *dev,
 #define dma_unmap_page(d, a, s, r) dma_unmap_page_attrs(d, a, s, r, 0)
 #define dma_get_sgtable(d, t, v, h, s) dma_get_sgtable_attrs(d, t, v, h, s, 0)
 #define dma_mmap_coherent(d, v, c, h, s) dma_mmap_attrs(d, v, c, h, s, 0)
+#define dma_link_range(d, p, o) dma_link_range_attrs(d, p, o, 0)
 
 bool dma_coherent_ok(struct device *dev, phys_addr_t phys, size_t size);
 
