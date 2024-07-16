@@ -76,6 +76,20 @@
 
 #define DMA_BIT_MASK(n)	(((n) == 64) ? ~0ULL : ((1ULL<<(n))-1))
 
+struct dma_iova_state {
+	struct device *dev;
+	enum dma_data_direction dir;
+};
+
+static inline void dma_init_iova_state(struct dma_iova_state *state,
+				       struct device *dev,
+				       enum dma_data_direction dir)
+{
+	memset(state, 0, sizeof(*state));
+	state->dev = dev;
+	state->dir = dir;
+}
+
 #ifdef CONFIG_DMA_API_DEBUG
 void debug_dma_mapping_error(struct device *dev, dma_addr_t dma_addr);
 void debug_dma_map_single(struct device *dev, const void *addr,
