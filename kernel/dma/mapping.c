@@ -6,6 +6,7 @@
  * Copyright (c) 2006  Tejun Heo <teheo@suse.de>
  */
 #include <linux/memblock.h> /* for max_pfn */
+#include <linux/memremap.h>
 #include <linux/acpi.h>
 #include <linux/dma-map-ops.h>
 #include <linux/export.h>
@@ -15,6 +16,7 @@
 #include <linux/of_device.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
+#include <linux/cc_platform.h>
 #include "debug.h"
 #include "direct.h"
 
@@ -962,3 +964,23 @@ unsigned long dma_get_merge_boundary(struct device *dev)
 	return ops->get_merge_boundary(dev);
 }
 EXPORT_SYMBOL_GPL(dma_get_merge_boundary);
+
+/**
+ * dma_init_iova_state - Initialize the IOVA state
+ * @iova: IOVA state to initialize
+ * @dev: Device to initialize the IOVA state for
+ * @dir: DMA direction
+ *
+ * Set up the IOVA state for a mapping.  After this dma_can_use_iova() can be
+ * used if IOVA based mapping are supported.
+ */
+void dma_init_iova_state(struct dma_iova_state *state, struct device *dev,
+		enum dma_data_direction dir)
+{
+	memset(state, 0, sizeof(*state));
+	state->dev = dev;
+	state->dir = dir;
+	if (use_dma_iommu(dev) && iommu_can_use_iova(dev))
+		state->use_iova = true;
+}
+EXPORT_SYMBOL_GPL(dma_init_iova_state);
