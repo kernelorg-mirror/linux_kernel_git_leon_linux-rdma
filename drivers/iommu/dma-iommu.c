@@ -11,6 +11,7 @@
 #include <linux/acpi_iort.h>
 #include <linux/atomic.h>
 #include <linux/crash_dump.h>
+#include <linux/cc_platform.h>
 #include <linux/device.h>
 #include <linux/dma-direct.h>
 #include <linux/dma-map-ops.h>
@@ -1885,6 +1886,26 @@ void iommu_dma_destroy_iova(struct dma_iova_state *state, dma_addr_t dma_addr,
 	if (!iotlb_gather.queued)
 		iommu_iotlb_sync(domain, &iotlb_gather);
 	__iommu_dma_free_iova(cookie, state->addr, state->size, &iotlb_gather);
+}
+
+bool iommu_can_use_iova(struct device *dev, struct page *page, size_t size,
+			enum dma_data_direction dir)
+{
+	enum pci_p2pdma_map_type map;
+
+	if (is_swiotlb_force_bounce(dev) || dev_use_swiotlb(dev, size, dir))
+		return false;
+
+	/* TODO: Rewrite this check to rely on specific struct page flags */
+	if (cc_platform_has(CC_ATTR_MEM_ENCRYPT))
+		return false;
+
+	if (page && is_pci_p2pdma_page(page)) {
+		map = pci_p2pdma_map_type(page->pgmap, dev);
+		return map == PCI_P2PDMA_MAP_THRU_HOST_BRIDGE;
+	}
+
+	return true;
 }
 
 void iommu_setup_dma_ops(struct device *dev)

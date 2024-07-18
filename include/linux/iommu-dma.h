@@ -77,4 +77,6 @@ int iommu_dma_link_range(struct dma_iova_state *state, phys_addr_t phys,
 		dma_addr_t dma_offset, size_t size, unsigned long attrs);
 void iommu_dma_unlink_range(struct dma_iova_state *state, dma_addr_t dma_offset,
 		size_t size, unsigned long attrs);
+bool iommu_can_use_iova(struct device *dev, struct page *page, size_t size,
+		enum dma_data_direction dir);
 #endif /* _LINUX_IOMMU_DMA_H */
