@@ -231,12 +231,14 @@ struct nvme_iod {
 	struct nvme_request req;
 	struct nvme_command cmd;
 	bool aborted;
+	u32 nr_dmas;
 	s8 nr_allocations;	/* PRP list pool allocations. 0 means small
 				   pool in use */
 	dma_addr_t first_dma;
 	dma_addr_t meta_dma;
 	struct sg_table sgt;
 	union nvme_descriptor list[NVME_MAX_NR_ALLOCATIONS];
+	u8 use_sgl : 1;
 };
 
 static inline unsigned int nvme_dbbuf_size(struct nvme_dev *dev)
@@ -584,7 +586,7 @@ static blk_status_t nvme_pci_setup_prps(struct nvme_dev *dev,
 	int nprps, i;
 
 	length -= (NVME_CTRL_PAGE_SIZE - offset);
-	if (length <= 0) {
+	if (iod->nr_dmas == 1) {
 		iod->first_dma = 0;
 		goto done;
 	}
@@ -598,7 +600,7 @@ static blk_status_t nvme_pci_setup_prps(struct nvme_dev *dev,
 		dma_len = sg_dma_len(sg);
 	}
 
-	if (length <= NVME_CTRL_PAGE_SIZE) {
+	if (iod->nr_dmas == 2) {
 		iod->first_dma = dma_addr;
 		goto done;
 	}
@@ -682,17 +684,22 @@ static blk_status_t nvme_pci_setup_sgls(struct nvme_dev *dev,
 	struct dma_pool *pool;
 	struct nvme_sgl_desc *sg_list;
 	struct scatterlist *sg = iod->sgt.sgl;
-	unsigned int entries = iod->sgt.nents;
+	unsigned int entries;
 	dma_addr_t sgl_dma;
 	int i = 0;
 
 	/* setting the transfer type as SGL */
 	cmd->flags = NVME_CMD_SGL_METABUF;
 
-	if (entries == 1) {
+	WARN_ONCE(iod->sgt.nents > iod->nr_dmas,
+		  "nents: %d nr_dmas: %d\n", iod->sgt.nents, iod->nr_dmas);
+	/* There is a chance that we merged BIOs in blk_rq_map_sg() */
+	iod->nr_dmas = min(iod->nr_dmas, iod->sgt.nents);
+	if (iod->nr_dmas == 1) {
 		nvme_pci_sgl_set_data(&cmd->dptr.sgl, sg);
 		return BLK_STS_OK;
 	}
+	entries = iod->nr_dmas;
 
 	if (entries <= (256 / sizeof(struct nvme_sgl_desc))) {
 		pool = dev->prp_small_pool;
@@ -743,7 +750,7 @@ static blk_status_t nvme_map_data(struct nvme_dev *dev, struct request *req,
 		goto out_free_sg;
 	}
 
-	if (nvme_pci_use_sgls(dev, req, iod->sgt.nents))
+	if (iod->use_sgl)
 		ret = nvme_pci_setup_sgls(dev, req, &cmnd->rw);
 	else
 		ret = nvme_pci_setup_prps(dev, req, &cmnd->rw);
@@ -771,6 +778,35 @@ static blk_status_t nvme_map_metadata(struct nvme_dev *dev, struct request *req,
 	return BLK_STS_OK;
 }
 
+static u32 nvme_calc_num_dmas(struct nvme_dev *dev, struct request *req)
+{
+	unsigned short nr_phys_segments = blk_rq_nr_phys_segments(req);
+	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
+	struct bio_vec bv = req_bvec(req);
+	u32 nr_dmas;
+
+	if (!nr_phys_segments)
+		return 0;
+
+	iod->use_sgl = nvme_pci_use_sgls(dev, req, nr_phys_segments);
+	if (iod->use_sgl) {
+		WARN_ONCE(nr_phys_segments > SGES_PER_PAGE,
+			  "nr_phys_segments: %d\n", nr_phys_segments);
+		/*
+		 * This is over-estimation, as blk_rq_map_sg() can potentialy
+		 * merge BIOs, so we will get less DMA entries.
+		 */
+		return nr_phys_segments;
+	}
+
+	nr_dmas = DIV_ROUND_UP(blk_rq_payload_bytes(req), NVME_CTRL_PAGE_SIZE);
+	if (bv.bv_offset && (bv.bv_offset + bv.bv_len) >= NVME_CTRL_PAGE_SIZE)
+		/* Accommodate for unaligned first page */
+		nr_dmas++;
+
+	return nr_dmas;
+}
+
 static blk_status_t nvme_prep_rq(struct nvme_dev *dev, struct request *req)
 {
 	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
@@ -784,7 +820,8 @@ static blk_status_t nvme_prep_rq(struct nvme_dev *dev, struct request *req)
 	if (ret)
 		return ret;
 
-	if (blk_rq_nr_phys_segments(req)) {
+	iod->nr_dmas = nvme_calc_num_dmas(dev, req);
+	if (iod->nr_dmas) {
 		ret = nvme_map_data(dev, req, &iod->cmd);
 		if (ret)
 			goto out_free_cmd;
@@ -799,7 +836,7 @@ static blk_status_t nvme_prep_rq(struct nvme_dev *dev, struct request *req)
 	nvme_start_request(req);
 	return BLK_STS_OK;
 out_unmap_data:
-	if (blk_rq_nr_phys_segments(req))
+	if (iod->nr_dmas)
 		nvme_unmap_data(dev, req);
 out_free_cmd:
 	nvme_cleanup_cmd(req);
@@ -898,16 +935,14 @@ static void nvme_queue_rqs(struct request **rqlist)
 static __always_inline void nvme_pci_unmap_rq(struct request *req)
 {
 	struct nvme_queue *nvmeq = req->mq_hctx->driver_data;
+	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
 	struct nvme_dev *dev = nvmeq->dev;
 
-	if (blk_integrity_rq(req)) {
-	        struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
-
+	if (blk_integrity_rq(req))
 		dma_unmap_page(dev->dev, iod->meta_dma,
 			       rq_integrity_vec(req).bv_len, rq_dma_dir(req));
-	}
 
-	if (blk_rq_nr_phys_segments(req))
+	if (iod->nr_dmas)
 		nvme_unmap_data(dev, req);
 }
 
