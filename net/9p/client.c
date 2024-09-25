@@ -1038,11 +1038,11 @@ struct p9_client *p9_client_create(const char *dev_name, char *options)
 	/* P9_HDRSZ + 4 is the smallest packet header we can have that is
 	 * followed by data accessed from userspace by read
 	 */
-	clnt->fcall_cache =
-		kmem_cache_create_usercopy("9p-fcall-cache", clnt->msize,
-					   0, 0, P9_HDRSZ + 4,
-					   clnt->msize - (P9_HDRSZ + 4),
-					   NULL);
+	//clnt->fcall_cache =
+	//	kmem_cache_create_usercopy("9p-fcall-cache", clnt->msize,
+	//				   0, 0, P9_HDRSZ + 4,
+	//				   clnt->msize - (P9_HDRSZ + 4),
+	//					   NULL);
 
 	return clnt;
 
