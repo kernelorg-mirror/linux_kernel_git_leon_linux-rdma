@@ -622,6 +622,7 @@ static blk_status_t nvme_pci_setup_prps(struct nvme_dev *dev,
 		return BLK_STS_OK;
 	}
 
+	WARN_ON(iod->first_dma == 0xDEADBEEF);
 	/* Set PRP pool address */
 	cmnd->dptr.prp2 = cpu_to_le64(iod->first_dma);
 	rq_for_each_bvec(bv, req, iter) {
@@ -634,7 +635,15 @@ static blk_status_t nvme_pci_setup_prps(struct nvme_dev *dev,
 		if (iod->map)
 			offset = 0;
 	}
-
+	bv = req_bvec(req);
+	pr_err("LR: bv_offset %u bv_len %u\n", bv.bv_offset, bv.bv_len);
+	pr_err("LR: idx %d i %d nr_dmas %d\n", idx, i, iod->nr_dmas);
+	print_hex_dump(KERN_ERR, "LR1: ", DUMP_PREFIX_OFFSET, 1, 1,
+		       &cmnd->dptr.prp1, 8, true);
+	print_hex_dump(KERN_ERR, "LR2: ", DUMP_PREFIX_OFFSET, 1, 1,
+		       &cmnd->dptr.prp2, 8, true);
+	print_hex_dump(KERN_ERR, "LR3: ", DUMP_PREFIX_OFFSET, 1, 1, prp_list,
+		       idx * 8, true);
 	return BLK_STS_OK;
 }
 
@@ -717,6 +726,9 @@ again:
 	if (nr_dmas == 0)
 		/* We allocated enough PRP pools */
 		return BLK_STS_OK;
+
+	WARN_ON(true);
+	/* UNTESTED */
 
 	old_list = list;
 	list = dma_pool_alloc(pool, GFP_ATOMIC | __GFP_ZERO, &addr);
@@ -817,6 +829,8 @@ static blk_status_t nvme_map_data(struct nvme_dev *dev, struct request *req,
 		if (dma_mapping_error(dev->dev, dma_addr))
 			goto out_free;
 
+		pr_err("LR: pos %llu idx %d dma_addr %pad bv_len %u bv_offset %u\n",
+		       blk_rq_pos(req), idx, &dma_addr, bv.bv_len, bv.bv_offset);
 		nvme_pci_set_dma(iod, dma_addr, bv.bv_len, idx);
 		if (!use_iova)
 			idx++;
@@ -899,6 +913,7 @@ static blk_status_t nvme_prep_rq(struct nvme_dev *dev, struct request *req)
 	iod->nr_allocations = -1;
 	iod->map = NULL;
 	iod->dma.addr = 0;
+	iod->first_dma = 0xDEADBEEF;
 
 	ret = nvme_setup_cmd(req->q->queuedata, req);
 	if (ret)
