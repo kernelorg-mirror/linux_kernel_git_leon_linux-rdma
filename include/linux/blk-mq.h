@@ -12,6 +12,7 @@
 
 struct blk_mq_tags;
 struct blk_flush_queue;
+struct dma_iova_state;
 
 #define BLKDEV_MIN_RQ	4
 #define BLKDEV_DEFAULT_RQ	128
@@ -1164,6 +1165,21 @@ static inline unsigned short blk_rq_nr_discard_segments(struct request *rq)
 {
 	return max_t(unsigned short, rq->nr_phys_segments, 1);
 }
+
+struct blk_dma_vec {
+	dma_addr_t	addr;
+	u32		len;
+};
+
+struct blk_dma_mapping {
+	struct blk_dma_vec *map;
+	struct blk_dma_vec single_map;
+	unsigned int nr_entries;
+};
+
+blk_status_t blk_rq_dma_map(struct request *req, struct device *dma_dev,
+		struct dma_iova_state *state, struct blk_dma_mapping *dma);
+void blk_rq_dma_unmap(struct dma_iova_state *state, struct blk_dma_mapping *dma);
 
 int __blk_rq_map_sg(struct request_queue *q, struct request *rq,
 		struct scatterlist *sglist, struct scatterlist **last_sg);

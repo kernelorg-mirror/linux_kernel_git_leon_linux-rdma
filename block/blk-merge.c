@@ -7,6 +7,7 @@
 #include <linux/bio.h>
 #include <linux/blkdev.h>
 #include <linux/blk-integrity.h>
+#include <linux/dma-mapping.h>
 #include <linux/scatterlist.h>
 #include <linux/part_stat.h>
 #include <linux/blk-cgroup.h>
@@ -521,6 +522,103 @@ static bool blk_map_iter_next(struct request *req,
 	return true;
 }
 
+#define blk_phys_to_page(_paddr) \
+	(pfn_to_page(__phys_to_pfn(_paddr)))
+
+blk_status_t blk_rq_dma_map(struct request *req, struct device *dma_dev,
+		struct dma_iova_state *state, struct blk_dma_mapping *dma)
+{
+	unsigned short nr_segments = blk_rq_nr_phys_segments(req);
+	unsigned int total_len = blk_rq_payload_bytes(req);
+	DEFINE_REQ_ITERATOR(iter, req);
+	struct phys_vec vec;
+	int error;
+
+	dma_init_iova_state(state, dma_dev, rq_dma_dir(req));
+
+	dma->nr_entries = 0;
+	dma->map = &dma->single_map;
+	if (nr_segments > 1 && !dma_can_use_iova(state)) {
+		/*
+		 * XXX: this needs to be backed by a mempool and move to common
+		 * code.
+		 */
+		dma->map = kmalloc_array(nr_segments, sizeof(*dma->map),
+				GFP_ATOMIC);
+		if (!dma->map)
+			return BLK_STS_RESOURCE;
+	}
+
+	/*
+	 * Grab the first segment ASAP because we'll need it to check alignment
+	 * for the IOVA allocation and to check for a P2P transfer.
+	 */
+	if (!blk_map_iter_next(req, &iter, &vec))
+		return BLK_STS_OK;
+
+	/* XXX: how is passing the page without offset going to work here? */
+	dma_set_iova_state(state, blk_phys_to_page(vec.paddr), vec.len);
+
+	error = dma_start_range(state);
+	if (error)
+		return errno_to_blk_status(error);
+
+	/*
+	 * XXX: For a single segment doing the simple dma_map_page is probably
+	 * still going to be faster with an iommu.
+	 */
+	if (dma_can_use_iova(state)) {
+		dma->map[0].len = total_len;
+		dma->map[0].addr = dma_alloc_iova(state, vec.paddr, total_len);
+		if (dma_mapping_error(state->dev, dma->map[0].addr))
+			return BLK_STS_RESOURCE;
+
+		do {
+			error = dma_link_range(state, vec.paddr, vec.len);
+			if (error)
+				return errno_to_blk_status(error);
+		} while (blk_map_iter_next(req, &iter, &vec));
+
+		dma->nr_entries++;
+	} else {
+		do {
+			struct blk_dma_vec *ent = &dma->map[dma->nr_entries];
+			struct page *page = blk_phys_to_page(vec.paddr);
+			unsigned int offset = offset_in_page(vec.paddr);
+
+			ent->addr = dma_map_page(state->dev, page, offset,
+					vec.len, rq_dma_dir(req));
+			if (dma_mapping_error(state->dev, ent->addr))
+				return BLK_STS_RESOURCE;
+			ent->len = vec.len;
+			dma->nr_entries++;
+		} while (blk_map_iter_next(req, &iter, &vec));
+	}
+
+	dma_end_range(state);
+	return BLK_STS_OK;
+}
+EXPORT_SYMBOL_GPL(blk_rq_dma_map);
+
+void blk_rq_dma_unmap(struct dma_iova_state *state, struct blk_dma_mapping *dma)
+{
+	if (dma_can_use_iova(state)) {
+		WARN_ON_ONCE(dma->nr_entries > 1);
+		dma_destroy_iova(state, dma->map[0].addr, dma->map[0].len);
+	} else {
+		unsigned int i;
+
+		for (i = 0; i < dma->nr_entries; i++) {
+			dma_unmap_page(state->dev, dma->map[i].addr,
+					dma->map[i].len, state->dir);
+		}
+	}
+
+	if (dma->map != &dma->single_map)
+		kfree(dma->map);
+}
+EXPORT_SYMBOL_GPL(blk_rq_dma_unmap);
+
 static inline struct scatterlist *blk_next_sg(struct scatterlist **sg,
 		struct scatterlist *sglist)
 {
@@ -550,7 +648,7 @@ int __blk_rq_map_sg(struct request_queue *q, struct request *rq,
 	int nsegs = 0;
 
 	while (blk_map_iter_next(rq, &iter, &vec)) {
-		struct page *page = pfn_to_page(__phys_to_pfn(vec.paddr));
+		struct page *page = blk_phys_to_page(vec.paddr);
 		unsigned int offset = offset_in_page(vec.paddr);
 
 		*last_sg = blk_next_sg(last_sg, sglist);
