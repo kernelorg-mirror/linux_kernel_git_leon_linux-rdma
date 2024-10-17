@@ -615,3 +615,65 @@ int hmm_range_fault(struct hmm_range *range)
 	return ret;
 }
 EXPORT_SYMBOL(hmm_range_fault);
+
+/**
+ * hmm_map_alloc - Allocate HMM map structure
+ * @dev: device to allocate structure for
+ * @map: HMM map to allocate
+ * @nr_entries: number of entries in the map
+ * @dma_entry_size: size of the DMA entry in the map
+ *
+ * Allocate the HMM map structure and all the lists it contains.
+ * Return 0 on success, -ENOMEM on failure.
+ */
+int hmm_map_alloc(struct device *dev, struct hmm_map *map, size_t nr_entries,
+		  size_t dma_entry_size)
+{
+	bool use_iova;
+
+	if (!(nr_entries * PAGE_SIZE / dma_entry_size))
+		return -EINVAL;
+
+	map->state = kzalloc(sizeof(*map->state), GFP_KERNEL);
+	if (!map->state)
+		return -ENOMEM;
+
+	map->dma_entry_size = dma_entry_size;
+	map->pfn_list =
+		kvcalloc(nr_entries, sizeof(*map->pfn_list), GFP_KERNEL);
+	if (!map->pfn_list)
+		goto err_pfn_list;
+
+	use_iova = dma_iova_try_alloc(dev, map->state, 0, nr_entries * PAGE_SIZE);
+	if (!use_iova && dma_need_unmap(dev)) {
+		map->dma_list = kvcalloc(nr_entries, sizeof(*map->dma_list),
+					 GFP_KERNEL);
+		if (!map->dma_list)
+			goto err_dma;
+	}
+	return 0;
+
+err_dma:
+	kfree(map->pfn_list);
+err_pfn_list:
+	kfree(map->state);
+	return -ENOMEM;
+}
+EXPORT_SYMBOL_GPL(hmm_map_alloc);
+
+/**
+ * hmm_map_free - iFree HMM map structure
+ * @dev: device to free structure from
+ * @map: HMM map containing the various lists and state
+ *
+ * Free the HMM map structure and all the lists it contains.
+ */
+void hmm_map_free(struct device *dev, struct hmm_map *map)
+{
+	if (dma_can_use_iova(map->state))
+		dma_iova_free(dev, map->state);
+	kfree(map->pfn_list);
+	kfree(map->dma_list);
+	kfree(map->state);
+}
+EXPORT_SYMBOL_GPL(hmm_map_free);
