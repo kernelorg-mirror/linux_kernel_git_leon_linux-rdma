@@ -553,18 +553,22 @@ static void nvme_free_prps(struct nvme_dev *dev, struct request *req)
 	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
 	enum dma_data_direction dir = rq_dma_dir(req);
 	int length = iod->total_len;
+	unsigned long attrs = 0;
 	dma_addr_t dma_addr;
 	int prp_len, i, desc;
 	__le64 *prp_list;
 	dma_addr_t dma_start;
 	u32 dma_len;
 
+	if (req->cmd_flags & REQ_P2PDMA)
+		attrs |= DMA_ATTR_SKIP_CPU_SYNC;
+
 	dma_addr = le64_to_cpu(iod->cmd.common.dptr.prp1);
 	prp_len = NVME_CTRL_PAGE_SIZE - (dma_addr & (NVME_CTRL_PAGE_SIZE - 1));
 	prp_len = min(length, prp_len);
 	length -= prp_len;
 	if (!length) {
-		dma_unmap_page(dev->dev, dma_addr, prp_len, dir);
+		dma_unmap_page_attrs(dev->dev, dma_addr, prp_len, dir, attrs);
 		return;
 	}
 
@@ -574,7 +578,7 @@ static void nvme_free_prps(struct nvme_dev *dev, struct request *req)
 	dma_addr = le64_to_cpu(iod->cmd.common.dptr.prp2);
 	if (length <= NVME_CTRL_PAGE_SIZE) {
 		if (dma_addr != dma_start + dma_len) {
-			dma_unmap_page(dev->dev, dma_start, dma_len, dir);
+			dma_unmap_page_attrs(dev->dev, dma_start, dma_len, dir, attrs);
 			dma_start = dma_addr;
 			dma_len = 0;
 		}
@@ -593,7 +597,7 @@ static void nvme_free_prps(struct nvme_dev *dev, struct request *req)
 
 		dma_addr = le64_to_cpu(prp_list[i++]);
 		if (dma_addr != dma_start + dma_len) {
-			dma_unmap_page(dev->dev, dma_start, dma_len, dir);
+			dma_unmap_page_attrs(dev->dev, dma_start, dma_len, dir, attrs);
 			dma_start = dma_addr;
 			dma_len = 0;
 		}
@@ -602,7 +606,7 @@ static void nvme_free_prps(struct nvme_dev *dev, struct request *req)
 		length -= prp_len;
 	} while (length);
 done:
-	dma_unmap_page(dev->dev, dma_start, dma_len, dir);
+	dma_unmap_page_attrs(dev->dev, dma_start, dma_len, dir, attrs);
 }
 
 static void nvme_free_sgls(struct nvme_dev *dev, struct request *req)
@@ -612,15 +616,19 @@ static void nvme_free_sgls(struct nvme_dev *dev, struct request *req)
 	unsigned int sqe_dma_len = le32_to_cpu(iod->cmd.common.dptr.sgl.length);
 	struct nvme_sgl_desc *sg_list = iod->descriptors[0];
 	enum dma_data_direction dir = rq_dma_dir(req);
+	unsigned long attrs = 0;
+
+	if (req->cmd_flags & REQ_P2PDMA)
+		attrs |= DMA_ATTR_SKIP_CPU_SYNC;
 
 	if (iod->nr_descriptors) {
 		unsigned int nr_entries = sqe_dma_len / sizeof(*sg_list), i;
 
 		for (i = 0; i < nr_entries; i++)
-			dma_unmap_page(dev->dev, le64_to_cpu(sg_list[i].addr),
-				le32_to_cpu(sg_list[i].length), dir);
+			dma_unmap_page_attrs(dev->dev, le64_to_cpu(sg_list[i].addr),
+				le32_to_cpu(sg_list[i].length), dir, attrs);
 	} else {
-		dma_unmap_page(dev->dev, sqe_dma_addr, sqe_dma_len, dir);
+		dma_unmap_page_attrs(dev->dev, sqe_dma_addr, sqe_dma_len, dir, attrs);
 	}
 }
 

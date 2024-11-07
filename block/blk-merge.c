@@ -543,8 +543,14 @@ static bool blk_dma_map_bus(struct request *req, struct device *dma_dev,
 static bool blk_dma_map_direct(struct request *req, struct device *dma_dev,
 		struct blk_dma_iter *iter, struct phys_vec *vec)
 {
-	iter->addr = dma_map_page(dma_dev, blk_phys_to_page(vec->paddr),
-			offset_in_page(vec->paddr), vec->len, rq_dma_dir(req));
+	unsigned long attrs = 0;
+
+	if (req->cmd_flags & REQ_P2PDMA)
+		attrs |= DMA_ATTR_SKIP_CPU_SYNC;
+
+	iter->addr = dma_map_page_attrs(dma_dev, blk_phys_to_page(vec->paddr),
+			offset_in_page(vec->paddr), vec->len, rq_dma_dir(req),
+			attrs);
 	if (dma_mapping_error(dma_dev, iter->addr)) {
 		iter->status = BLK_STS_RESOURCE;
 		return false;
@@ -559,14 +565,18 @@ static bool blk_rq_dma_map_iova(struct request *req, struct device *dma_dev,
 {
 	enum dma_data_direction dir = rq_dma_dir(req);
 	unsigned int mapped = 0;
+	unsigned long attrs = 0;
 	int error = 0;
 
 	iter->addr = state->addr;
 	iter->len = dma_iova_size(state);
 
+	if (req->cmd_flags & REQ_P2PDMA)
+		attrs |= DMA_ATTR_SKIP_CPU_SYNC;
+
 	do {
 		error = dma_iova_link(dma_dev, state, vec->paddr, mapped,
-				vec->len, dir, 0);
+				vec->len, dir, attrs);
 		if (error)
 			goto error_unmap;
 		mapped += vec->len;
@@ -578,7 +588,7 @@ static bool blk_rq_dma_map_iova(struct request *req, struct device *dma_dev,
 
 	return true;
 error_unmap:
-	dma_iova_destroy(dma_dev, state, mapped, rq_dma_dir(req), 0);
+	dma_iova_destroy(dma_dev, state, mapped, rq_dma_dir(req), attrs);
 	iter->status = errno_to_blk_status(error);
 	return false;
 }
@@ -627,13 +637,13 @@ bool blk_rq_dma_map_iter_start(struct request *req, struct device *dma_dev,
 		switch (pci_p2pdma_state(&iter->p2pdma, dma_dev,
 				blk_phys_to_page(vec.paddr))) {
 		case PCI_P2PDMA_MAP_BUS_ADDR:
+			req->cmd_flags |= REQ_P2P_BUS_DMA;
 			return blk_dma_map_bus(req, dma_dev, iter, &vec);
 		case PCI_P2PDMA_MAP_THRU_HOST_BRIDGE:
 			/*
 			 * P2P transfers through the host bridge are treated the
 			 * same as non-P2P transfers below and during unmap.
 			 */
-			req->cmd_flags &= ~REQ_P2PDMA;
 			break;
 		default:
 			iter->status = BLK_STS_INVAL;
