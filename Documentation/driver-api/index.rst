@@ -103,6 +103,7 @@ Subsystem-specific APIs
    interconnect
    ipmb
    ipmi
+   lib
    libata
    mailbox
    md/index

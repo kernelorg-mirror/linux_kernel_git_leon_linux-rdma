@@ -7349,6 +7349,7 @@ M:	David Ahern <dsahern@kernel.org>
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
 S:	Supported
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/drivers-lib/linux.git
+F:	Documentation/driver-api/lib.rst
 F:	drivers/lib/
 
 DRM ACCEL DRIVERS FOR INTEL VPU
