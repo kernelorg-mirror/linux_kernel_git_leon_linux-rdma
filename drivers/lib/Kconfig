@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-only
+menuconfig DRIVERS_LIB
+	bool "Core driver logic for multi-subsystem drivers"
+	help
+	  Core drivers for low level functionality of multi-subsystem drivers
+	  See Documentation/driver-api/lib.rst for more details.
+
+	  If you don't know what to do here, say N.

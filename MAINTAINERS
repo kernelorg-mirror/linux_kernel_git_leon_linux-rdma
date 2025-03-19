@@ -7343,6 +7343,14 @@ S:	Maintained
 F:	drivers/soc/ti/smartreflex.c
 F:	include/linux/power/smartreflex.h
 
+DRIVERS LIB
+M:	Leon Romanovsky <leon@kernel.org>
+M:	David Ahern <dsahern@kernel.org>
+M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+S:	Supported
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/drivers-lib/linux.git
+F:	drivers/lib/
+
 DRM ACCEL DRIVERS FOR INTEL VPU
 M:	Jacek Lawrynowicz <jacek.lawrynowicz@linux.intel.com>
 M:	Maciej Falkowski <maciej.falkowski@linux.intel.com>
