@@ -872,53 +872,22 @@ static void dump_command(struct mlx5_core_dev *dev,
 	struct mlx5_cmd_mailbox *next = msg->next;
 	int n = mlx5_calc_cmd_blocks(msg);
 	u16 op = ent->op;
-	int data_only;
 	u32 offset = 0;
-	int dump_len;
 	int i;
 
-	mlx5_core_dbg(dev, "cmd[%d]: start dump\n", ent->idx);
-	data_only = !!(mlx5_core_debug_mask & (1 << MLX5_CMD_DATA));
+	mlx5_core_dbg(dev, "cmd[%d]: dump command %s(0x%x) %s\n", ent->idx,
+		      mlx5_command_str(op), op, input ? "INPUT" : "OUTPUT");
 
-	if (data_only)
-		mlx5_core_dbg_mask(dev, 1 << MLX5_CMD_DATA,
-				   "cmd[%d]: dump command data %s(0x%x) %s\n",
-				   ent->idx, mlx5_command_str(op), op,
-				   input ? "INPUT" : "OUTPUT");
-	else
-		mlx5_core_dbg(dev, "cmd[%d]: dump command %s(0x%x) %s\n",
-			      ent->idx, mlx5_command_str(op), op,
-			      input ? "INPUT" : "OUTPUT");
-
-	if (data_only) {
-		if (input) {
-			dump_buf(ent->lay->in, sizeof(ent->lay->in), 1, offset, ent->idx);
-			offset += sizeof(ent->lay->in);
-		} else {
-			dump_buf(ent->lay->out, sizeof(ent->lay->out), 1, offset, ent->idx);
-			offset += sizeof(ent->lay->out);
-		}
-	} else {
-		dump_buf(ent->lay, sizeof(*ent->lay), 0, offset, ent->idx);
-		offset += sizeof(*ent->lay);
-	}
+	dump_buf(ent->lay, sizeof(*ent->lay), 0, offset, ent->idx);
+	offset += sizeof(*ent->lay);
 
 	for (i = 0; i < n && next; i++)  {
-		if (data_only) {
-			dump_len = min_t(int, MLX5_CMD_DATA_BLOCK_SIZE, msg->len - offset);
-			dump_buf(next->buf, dump_len, 1, offset, ent->idx);
-			offset += MLX5_CMD_DATA_BLOCK_SIZE;
-		} else {
-			mlx5_core_dbg(dev, "cmd[%d]: command block:\n", ent->idx);
-			dump_buf(next->buf, sizeof(struct mlx5_cmd_prot_block), 0, offset,
-				 ent->idx);
-			offset += sizeof(struct mlx5_cmd_prot_block);
-		}
+		mlx5_core_dbg(dev, "cmd[%d]: command block:\n", ent->idx);
+		dump_buf(next->buf, sizeof(struct mlx5_cmd_prot_block), 0,
+			 offset, ent->idx);
+		offset += sizeof(struct mlx5_cmd_prot_block);
 		next = next->next;
 	}
-
-	if (data_only)
-		pr_debug("\n");
 
 	mlx5_core_dbg(dev, "cmd[%d]: end dump\n", ent->idx);
 }
@@ -1269,9 +1238,8 @@ static int mlx5_cmd_invoke(struct mlx5_core_dev *dev, struct mlx5_cmd_msg *in,
 		++stats->n;
 		spin_unlock_irq(&stats->lock);
 	}
-	mlx5_core_dbg_mask(dev, 1 << MLX5_CMD_TIME,
-			   "fw exec time for %s is %lld nsec\n",
-			   mlx5_command_str(ent->op), ds);
+	mlx5_core_dbg(dev, "fw exec time for %s is %lld nsec\n",
+		      mlx5_command_str(ent->op), ds);
 
 out_free:
 	status = ent->status;

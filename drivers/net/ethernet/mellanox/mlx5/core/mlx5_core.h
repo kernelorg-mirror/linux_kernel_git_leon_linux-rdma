@@ -43,8 +43,6 @@
 #include <linux/mlx5/driver.h>
 #include "lib/devcom.h"
 
-extern uint mlx5_core_debug_mask;
-
 #define mlx5_core_dbg(__dev, format, ...)				\
 	dev_dbg((__dev)->device, "%s:%d:(pid %d): " format,		\
 		 __func__, __LINE__, current->pid,			\
@@ -55,12 +53,6 @@ extern uint mlx5_core_debug_mask;
 		     "%s:%d:(pid %d): " format,		\
 		     __func__, __LINE__, current->pid,	\
 		     ##__VA_ARGS__)
-
-#define mlx5_core_dbg_mask(__dev, mask, format, ...)		\
-do {								\
-	if ((mask) & mlx5_core_debug_mask)			\
-		mlx5_core_dbg(__dev, format, ##__VA_ARGS__);	\
-} while (0)
 
 #define mlx5_core_err(__dev, format, ...)			\
 	dev_err((__dev)->device, "%s:%d:(pid %d): " format,	\
@@ -162,11 +154,6 @@ static inline struct device *mlx5_core_dma_dev(struct mlx5_core_dev *dev)
 {
 	return &dev->pdev->dev;
 }
-
-enum {
-	MLX5_CMD_DATA, /* print command payload only */
-	MLX5_CMD_TIME, /* print command execution time */
-};
 
 enum {
 	MLX5_DRIVER_STATUS_ABORTED = 0xfe,

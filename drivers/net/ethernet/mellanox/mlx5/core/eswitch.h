@@ -610,16 +610,14 @@ bool mlx5_esw_multipath_prereq(struct mlx5_core_dev *dev0,
 
 const u32 *mlx5_esw_query_functions(struct mlx5_core_dev *dev);
 
-#define MLX5_DEBUG_ESWITCH_MASK BIT(3)
-
 #define esw_info(__dev, format, ...)			\
 	dev_info((__dev)->device, "E-Switch: " format, ##__VA_ARGS__)
 
 #define esw_warn(__dev, format, ...)			\
 	dev_warn((__dev)->device, "E-Switch: " format, ##__VA_ARGS__)
 
-#define esw_debug(dev, format, ...)				\
-	mlx5_core_dbg_mask(dev, MLX5_DEBUG_ESWITCH_MASK, format, ##__VA_ARGS__)
+#define esw_debug(dev, format, ...) \
+	dev_dbg((dev)->device, format, ##__VA_ARGS__)
 
 static inline bool mlx5_esw_allowed(const struct mlx5_eswitch *esw)
 {
