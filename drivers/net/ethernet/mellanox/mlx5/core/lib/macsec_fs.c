@@ -1800,7 +1800,7 @@ macsec_fs_rx_add_rule(struct mlx5_macsec_fs *macsec_fs,
 	rx_rule->rule[0] = rule;
 
 	/* Rx crypto table without SCI rule */
-	if ((cpu_to_be64((__force u64)attrs->sci) & 0xFFFF) == ntohs(MACSEC_PORT_ES)) {
+	if (lower_16_bits((__force u64)attrs->sci) == ntohs(MACSEC_PORT_ES)) {
 		memset(spec, 0, sizeof(struct mlx5_flow_spec));
 		memset(&dest, 0, sizeof(struct mlx5_flow_destination));
 		memset(&flow_act, 0, sizeof(flow_act));
