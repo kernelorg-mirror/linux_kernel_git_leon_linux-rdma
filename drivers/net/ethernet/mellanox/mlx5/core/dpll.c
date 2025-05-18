@@ -534,18 +534,7 @@ static struct auxiliary_driver mlx5_dpll_driver = {
 	.id_table = mlx5_dpll_id_table,
 };
 
-static int __init mlx5_dpll_init(void)
-{
-	return auxiliary_driver_register(&mlx5_dpll_driver);
-}
-
-static void __exit mlx5_dpll_exit(void)
-{
-	auxiliary_driver_unregister(&mlx5_dpll_driver);
-}
-
-module_init(mlx5_dpll_init);
-module_exit(mlx5_dpll_exit);
+module_auxiliary_driver(&mlx5_dpll_driver);
 
 MODULE_AUTHOR("Jiri Pirko <jiri@nvidia.com>");
 MODULE_DESCRIPTION("Mellanox 5th generation network adapters (ConnectX series) DPLL driver");
