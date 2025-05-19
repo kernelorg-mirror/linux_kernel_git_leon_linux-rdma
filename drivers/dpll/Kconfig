@@ -3,5 +3,10 @@
 # Generic DPLL drivers configuration
 #
 
-config DPLL
-	bool
+menuconfig DPLL
+	bool "DPLL drivers configuration"
+	help
+	  DPLL driver configuration subsystem which provides general interface
+	  to configure devices that use any kind of Digital PLL and could use
+	  different sources of input signal to synchronize to, as well as
+	  different types of outputs.
