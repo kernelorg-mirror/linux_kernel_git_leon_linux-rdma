@@ -7,3 +7,5 @@ obj-$(CONFIG_DPLL)      += dpll.o
 dpll-y                  += dpll_core.o
 dpll-y                  += dpll_netlink.o
 dpll-y                  += dpll_nl.o
+
+mlx5_dpll-$(CONFIG_MLX5_DPLL) := mlx5_dpll.o

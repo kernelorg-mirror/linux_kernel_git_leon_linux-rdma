@@ -10,3 +10,22 @@ menuconfig DPLL
 	  to configure devices that use any kind of Digital PLL and could use
 	  different sources of input signal to synchronize to, as well as
 	  different types of outputs.
+
+if DPLL
+
+config MLX5_DPLL
+	tristate "Mellanox 5th generation network adapters (ConnectX series) DPLL support"
+	depends on MLX5_CORE
+	help
+	  DPLL support in Mellanox Technologies ConnectX NICs.
+
+	  This option enables support for Digital Phase-Locked Loop (DPLL) functionality
+	  in Mellanox 5th generation network adapters (ConnectX series). DPLL allows
+	  precise time synchronization between network nodes, which is essential for
+	  time-sensitive applications such as financial trading or telecom systems.
+
+	  Enabling this feature provides access to advanced time synchronization hardware
+	  capabilities, useful for configurations involving PTP (Precision Time Protocol).
+
+	  If you don't know what to do here, say N.
+endif
