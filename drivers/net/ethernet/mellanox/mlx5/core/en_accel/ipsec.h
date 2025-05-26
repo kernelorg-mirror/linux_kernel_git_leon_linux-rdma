@@ -98,10 +98,10 @@ struct mlx5e_ipsec_addr {
 
 struct mlx5_accel_esp_xfrm_attrs {
 	u32   spi;
-	u32   mode;
 	struct aes_gcm_keymat aes_gcm;
 	struct mlx5e_ipsec_addr addrs;
 	struct upspec upspec;
+	u8 mode : 1;
 	u8 dir : 2;
 	u8 type : 2;
 	u8 drop : 1;
