@@ -93,7 +93,7 @@ static struct mlx5e_ipsec_tx *ipsec_tx(struct mlx5e_ipsec *ipsec, int type)
 static struct mlx5_fs_chains *
 ipsec_chains_create(struct mlx5_core_dev *mdev, struct mlx5_flow_table *miss_ft,
 		    enum mlx5_flow_namespace_type ns, int base_prio,
-		    int base_level, struct mlx5_flow_table **root_ft)
+		    int base_level, struct mlx5_flow_table **root_ft, u32 flags)
 {
 	struct mlx5_chains_attr attr = {};
 	struct mlx5_fs_chains *chains;
@@ -101,7 +101,7 @@ ipsec_chains_create(struct mlx5_core_dev *mdev, struct mlx5_flow_table *miss_ft,
 	int err;
 
 	attr.flags = MLX5_CHAINS_AND_PRIOS_SUPPORTED |
-		     MLX5_CHAINS_IGNORE_FLOW_LEVEL_SUPPORTED;
+		     MLX5_CHAINS_IGNORE_FLOW_LEVEL_SUPPORTED | flags;
 	attr.max_grp_num = 2;
 	attr.default_ft = miss_ft;
 	attr.ns = ns;
@@ -864,6 +864,7 @@ static int ipsec_rx_policy_create(struct mlx5e_ipsec *ipsec,
 	struct mlx5_flow_destination default_dest;
 	struct mlx5_core_dev *mdev = ipsec->mdev;
 	struct mlx5_flow_table *ft;
+	u32 flags = 0;
 	int err;
 
 	err = ipsec_rx_chains_create_miss(ipsec, rx, attr, dest);
@@ -873,17 +874,21 @@ static int ipsec_rx_policy_create(struct mlx5e_ipsec *ipsec,
 	ipsec_rx_default_dest_get(ipsec, rx, &default_dest);
 
 	if (mlx5_ipsec_device_caps(mdev) & MLX5_IPSEC_CAP_PRIO) {
-		rx->chains = ipsec_chains_create(mdev,
-						 default_dest.ft,
-						 attr->chains_ns,
-						 attr->prio,
-						 attr->sa_level,
-						 &rx->ft.pol);
+		if (rx->allow_tunnel_mode)
+			flags = MLX5_CHAINS_FT_TUNNEL_SUPPORTED;
+
+		rx->chains = ipsec_chains_create(mdev, default_dest.ft,
+						 attr->chains_ns, attr->prio,
+						 attr->sa_level, &rx->ft.pol,
+						 flags);
 		if (IS_ERR(rx->chains))
 			err = PTR_ERR(rx->chains);
 	} else {
-		ft = ipsec_ft_create(attr->ns, attr->pol_level,
-				     attr->prio, 1, 2, 0);
+		if (rx->allow_tunnel_mode)
+			flags = MLX5_FLOW_TABLE_TUNNEL_EN_REFORMAT;
+
+		ft = ipsec_ft_create(attr->ns, attr->pol_level, attr->prio, 1,
+				     2, flags);
 		if (IS_ERR(ft)) {
 			err = PTR_ERR(ft);
 			goto err_out;
@@ -1305,9 +1310,10 @@ static int tx_create(struct mlx5e_ipsec *ipsec, struct mlx5e_ipsec_tx *tx,
 	}
 
 	if (mlx5_ipsec_device_caps(mdev) & MLX5_IPSEC_CAP_PRIO) {
-		tx->chains = ipsec_chains_create(
-			mdev, tx->ft.sa, attr.chains_ns, attr.prio, attr.pol_level,
-			&tx->ft.pol);
+		tx->chains = ipsec_chains_create(mdev, tx->ft.sa,
+						 attr.chains_ns, attr.prio,
+						 attr.pol_level, &tx->ft.pol,
+						 0);
 		if (IS_ERR(tx->chains)) {
 			err = PTR_ERR(tx->chains);
 			goto err_pol_ft;
@@ -2050,12 +2056,15 @@ static int rx_add_rule(struct mlx5e_ipsec_sa_entry *sa_entry)
 
 	switch (attrs->type) {
 	case XFRM_DEV_OFFLOAD_PACKET:
-		err = setup_pkt_reformat(ipsec, &attrs->addrs, attrs->mode,
-					 attrs->type, attrs->dir, attrs->encap,
-					 htonl(attrs->spi), attrs->authsize,
-					 &flow_act);
-		if (err)
-			goto err_pkt_reformat;
+		if (attrs->mode == XFRM_MODE_TRANSPORT) {
+			err = setup_pkt_reformat(ipsec, &attrs->addrs,
+						 attrs->mode, attrs->type,
+						 attrs->dir, attrs->encap,
+						 htonl(attrs->spi),
+						 attrs->authsize, &flow_act);
+			if (err)
+				goto err_pkt_reformat;
+		}
 		break;
 	default:
 		break;
@@ -2325,7 +2334,7 @@ static int rx_add_policy(struct mlx5e_ipsec_pol_entry *pol_entry)
 	struct mlx5_flow_spec *spec;
 	struct mlx5_flow_table *ft;
 	struct mlx5e_ipsec_rx *rx;
-	int err, dstn = 0;
+	int err = 0, dstn = 0;
 
 	ft = rx_ft_get_policy(mdev, pol_entry->ipsec, attrs->addrs.family,
 			      attrs->prio, attrs->type);
@@ -2347,6 +2356,22 @@ static int rx_add_policy(struct mlx5e_ipsec_pol_entry *pol_entry)
 
 	setup_fte_no_frags(spec);
 	setup_fte_upper_proto_match(spec, &attrs->upspec);
+
+	switch (attrs->type) {
+	case XFRM_DEV_OFFLOAD_PACKET:
+		if (attrs->mode == XFRM_MODE_TUNNEL) {
+			/* Set proper protocol as requested by policy template */
+			err = setup_pkt_reformat(ipsec, &attrs->addrs,
+						 attrs->mode, attrs->type,
+						 attrs->dir, false, 0, 0,
+						 &flow_act);
+			if (err)
+				goto err_pkt_reformat;
+		}
+		break;
+	default:
+		break;
+	}
 
 	switch (attrs->action) {
 	case XFRM_POLICY_ALLOW:
@@ -2381,6 +2406,9 @@ static int rx_add_policy(struct mlx5e_ipsec_pol_entry *pol_entry)
 	return 0;
 
 err_action:
+	if (flow_act.pkt_reformat)
+		mlx5_packet_reformat_dealloc(mdev, flow_act.pkt_reformat);
+err_pkt_reformat:
 	kvfree(spec);
 err_alloc:
 	rx_ft_put_policy(pol_entry->ipsec, attrs->addrs.family, attrs->prio,
@@ -2691,6 +2719,9 @@ void mlx5e_accel_ipsec_fs_del_pol(struct mlx5e_ipsec_pol_entry *pol_entry)
 	struct mlx5_core_dev *mdev = mlx5e_ipsec_pol2dev(pol_entry);
 
 	mlx5_del_flow_rules(ipsec_rule->rule);
+
+	if (ipsec_rule->pkt_reformat)
+		mlx5_packet_reformat_dealloc(mdev, ipsec_rule->pkt_reformat);
 
 	mlx5e_ipsec_unblock_tc_offload(pol_entry->ipsec->mdev);
 
