@@ -94,6 +94,14 @@ struct mlx5e_ipsec_addr {
 		__be32 m6[4];
 	} dmask;
 	u8 family;
+	union {
+		u8 smac[ETH_ALEN];
+		__be16 sport;
+	};
+	union {
+		u8 dmac[ETH_ALEN];
+		__be16 dport;
+	};
 };
 
 struct mlx5_accel_esp_xfrm_attrs {
@@ -110,14 +118,6 @@ struct mlx5_accel_esp_xfrm_attrs {
 	u32 authsize;
 	u32 reqid;
 	struct mlx5_ipsec_lft lft;
-	union {
-		u8 smac[ETH_ALEN];
-		__be16 sport;
-	};
-	union {
-		u8 dmac[ETH_ALEN];
-		__be16 dport;
-	};
 };
 
 enum mlx5_ipsec_cap {

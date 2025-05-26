@@ -256,14 +256,12 @@ static void mlx5e_ipsec_init_limits(struct mlx5e_ipsec_sa_entry *sa_entry,
 	attrs->lft.numb_rounds_soft = (u64)n;
 }
 
-static void mlx5e_ipsec_init_macs(struct mlx5e_ipsec_sa_entry *sa_entry,
-				  struct mlx5_accel_esp_xfrm_attrs *attrs)
+static int mlx5e_ipsec_init_macs(struct net_device *netdev,
+				 struct mlx5e_ipsec_addr *addrs,
+				 struct upspec *upspec, u8 dir)
 {
-	struct mlx5_core_dev *mdev = mlx5e_ipsec_sa2dev(sa_entry);
-	struct net_device *netdev = sa_entry->dev;
-	struct mlx5e_ipsec_addr *addrs = &attrs->addrs;
-	struct xfrm_state *x = sa_entry->x;
 	struct dst_entry *rt_dst_entry;
+	struct mlx5e_priv *priv;
 	struct flowi4 fl4 = {};
 	struct flowi6 fl6 = {};
 	struct neighbour *n;
@@ -271,56 +269,54 @@ static void mlx5e_ipsec_init_macs(struct mlx5e_ipsec_sa_entry *sa_entry,
 	struct rtable *rt;
 	const void *pkey;
 	u8 *dst, *src;
+	int ret = 0;
 
-	if (attrs->mode != XFRM_MODE_TUNNEL ||
-	    attrs->type != XFRM_DEV_OFFLOAD_PACKET)
-		return;
-
-	mlx5_query_mac_address(mdev, addr);
-	switch (attrs->dir) {
+	priv = netdev_priv(netdev);
+	mlx5_query_mac_address(priv->mdev, addr);
+	switch (dir) {
 	case XFRM_DEV_OFFLOAD_IN:
-		src = attrs->dmac;
-		dst = attrs->smac;
+		src = addrs->dmac;
+		dst = addrs->smac;
 
 		switch (addrs->family) {
 		case AF_INET:
-			fl4.flowi4_proto = x->sel.proto;
+			fl4.flowi4_proto = upspec->proto;
 			fl4.daddr = addrs->saddr.a4;
 			fl4.saddr = addrs->daddr.a4;
 			pkey = &addrs->saddr.a4;
 			break;
 		case AF_INET6:
-			fl6.flowi6_proto = x->sel.proto;
+			fl6.flowi6_proto = upspec->proto;
 			memcpy(fl6.daddr.s6_addr32, addrs->saddr.a6, 16);
 			memcpy(fl6.saddr.s6_addr32, addrs->daddr.a6, 16);
 			pkey = &addrs->saddr.a6;
 			break;
 		default:
-			return;
+			return -EINVAL;
 		}
 		break;
 	case XFRM_DEV_OFFLOAD_OUT:
-		src = attrs->smac;
-		dst = attrs->dmac;
+		src = addrs->smac;
+		dst = addrs->dmac;
 		switch (addrs->family) {
 		case AF_INET:
-			fl4.flowi4_proto = x->sel.proto;
+			fl4.flowi4_proto = upspec->proto;
 			fl4.daddr = addrs->daddr.a4;
 			fl4.saddr = addrs->saddr.a4;
 			pkey = &addrs->daddr.a4;
 			break;
 		case AF_INET6:
-			fl6.flowi6_proto = x->sel.proto;
+			fl6.flowi6_proto = upspec->proto;
 			memcpy(fl6.daddr.s6_addr32, addrs->daddr.a6, 16);
 			memcpy(fl6.saddr.s6_addr32, addrs->saddr.a6, 16);
 			pkey = &addrs->daddr.a6;
 			break;
 		default:
-			return;
+			return -EINVAL;
 		}
 		break;
 	default:
-		return;
+		return -EINVAL;
 	}
 
 	ether_addr_copy(src, addr);
@@ -348,7 +344,7 @@ static void mlx5e_ipsec_init_macs(struct mlx5e_ipsec_sa_entry *sa_entry,
 			goto neigh;
 		break;
 	default:
-		return;
+		return -EINVAL;
 	}
 
 	n = dst_neigh_lookup(rt_dst_entry, pkey);
@@ -361,26 +357,27 @@ static void mlx5e_ipsec_init_macs(struct mlx5e_ipsec_sa_entry *sa_entry,
 	ether_addr_copy(dst, addr);
 	dst_release(rt_dst_entry);
 	neigh_release(n);
-	return;
+	return 0;
 
 neigh:
 	n = neigh_lookup(&arp_tbl, pkey, netdev);
 	if (!n) {
 		n = neigh_create(&arp_tbl, pkey, netdev);
 		if (IS_ERR(n))
-			return;
+			return PTR_ERR(n);
 		neigh_event_send(n, NULL);
 		/*
 		 * We failed to find route for tunnel mode, so packets
 		 * will be dropped anyway. Make this drop more efficient
 		 * by using HW to perform it.
 		 */
-		attrs->drop = true;
+		ret = -EINVAL;
 	} else {
 		neigh_ha_snapshot(addr, n, netdev);
 		ether_addr_copy(dst, addr);
 	}
 	neigh_release(n);
+	return ret;
 }
 
 static void mlx5e_ipsec_state_mask(struct mlx5e_ipsec_addr *addrs)
@@ -398,6 +395,7 @@ void mlx5e_ipsec_build_accel_xfrm_attrs(struct mlx5e_ipsec_sa_entry *sa_entry,
 {
 	struct xfrm_state *x = sa_entry->x;
 	struct aes_gcm_keymat *aes_gcm = &attrs->aes_gcm;
+	struct net_device *netdev = sa_entry->dev;
 	struct aead_geniv_ctx *geniv_ctx;
 	struct crypto_aead *aead;
 	unsigned int crypto_data_len, key_len;
@@ -479,12 +477,14 @@ skip_replay_window:
 	attrs->mode = x->props.mode;
 
 	mlx5e_ipsec_init_limits(sa_entry, attrs);
-	mlx5e_ipsec_init_macs(sa_entry, attrs);
-
+	if (attrs->mode == XFRM_MODE_TUNNEL &&
+	    attrs->type == XFRM_DEV_OFFLOAD_PACKET)
+		attrs->drop = mlx5e_ipsec_init_macs(netdev, &attrs->addrs,
+						    &attrs->upspec, attrs->dir);
 	if (x->encap) {
 		attrs->encap = true;
-		attrs->sport = x->encap->encap_sport;
-		attrs->dport = x->encap->encap_dport;
+		attrs->addrs.sport = x->encap->encap_sport;
+		attrs->addrs.dport = x->encap->encap_dport;
 	}
 }
 
@@ -683,10 +683,10 @@ static void mlx5e_ipsec_handle_netdev_event(struct work_struct *_work)
 
 	switch (attrs->dir) {
 	case XFRM_DEV_OFFLOAD_IN:
-		ether_addr_copy(attrs->smac, data->addr);
+		ether_addr_copy(attrs->addrs.smac, data->addr);
 		break;
 	case XFRM_DEV_OFFLOAD_OUT:
-		ether_addr_copy(attrs->dmac, data->addr);
+		ether_addr_copy(attrs->addrs.dmac, data->addr);
 		break;
 	default:
 		WARN_ON_ONCE(true);

@@ -1760,8 +1760,8 @@ setup_pkt_tunnel_reformat(struct mlx5_core_dev *mdev,
 		goto free_reformatbf;
 	}
 
-	ether_addr_copy(eth_hdr->h_dest, attrs->dmac);
-	ether_addr_copy(eth_hdr->h_source, attrs->smac);
+	ether_addr_copy(eth_hdr->h_dest, attrs->addrs.dmac);
+	ether_addr_copy(eth_hdr->h_source, attrs->addrs.smac);
 
 	switch (attrs->dir) {
 	case XFRM_DEV_OFFLOAD_IN:
@@ -1865,8 +1865,8 @@ setup_pkt_transport_reformat(struct mlx5_accel_esp_xfrm_attrs *attrs,
 		hdr = reformatbf;
 		if (attrs->encap) {
 			udphdr = (struct udphdr *)reformatbf;
-			udphdr->source = attrs->sport;
-			udphdr->dest = attrs->dport;
+			udphdr->source = attrs->addrs.sport;
+			udphdr->dest = attrs->addrs.dport;
 			hdr += sizeof(*udphdr);
 		}
 
