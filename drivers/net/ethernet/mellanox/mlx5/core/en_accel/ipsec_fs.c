@@ -1645,7 +1645,7 @@ static void setup_fte_upper_proto_match(struct mlx5_flow_spec *spec, struct upsp
 }
 
 static enum mlx5_flow_namespace_type ipsec_fs_get_ns(struct mlx5e_ipsec *ipsec,
-						     int type, u8 dir)
+						     u8 type, u8 dir)
 {
 	if (ipsec->is_uplink_rep && type == XFRM_DEV_OFFLOAD_PACKET)
 		return MLX5_FLOW_NAMESPACE_FDB;
@@ -1656,8 +1656,8 @@ static enum mlx5_flow_namespace_type ipsec_fs_get_ns(struct mlx5e_ipsec *ipsec,
 	return MLX5_FLOW_NAMESPACE_EGRESS;
 }
 
-static int setup_modify_header(struct mlx5e_ipsec *ipsec, int type, u32 val, u8 dir,
-			       struct mlx5_flow_act *flow_act)
+static int setup_modify_header(struct mlx5e_ipsec *ipsec, u8 type, u32 val,
+			       u8 dir, struct mlx5_flow_act *flow_act)
 {
 	enum mlx5_flow_namespace_type ns_type = ipsec_fs_get_ns(ipsec, type, dir);
 	u8 action[3][MLX5_UN_SZ_BYTES(set_add_copy_action_in_auto)] = {};
