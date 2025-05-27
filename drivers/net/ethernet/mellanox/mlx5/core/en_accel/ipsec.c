@@ -1215,6 +1215,12 @@ static int mlx5e_xfrm_validate_policy(struct mlx5_core_dev *mdev,
 		return -EINVAL;
 	}
 
+	if (x->xfrm_vec[0].mode != XFRM_MODE_TRANSPORT &&
+	    x->xfrm_vec[0].mode != XFRM_MODE_TUNNEL) {
+		NL_SET_ERR_MSG_MOD(extack, "Template mode is not supported");
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -1242,6 +1248,7 @@ mlx5e_ipsec_build_accel_pol_attrs(struct mlx5e_ipsec_pol_entry *pol_entry,
 	attrs->upspec.sport_mask = ntohs(sel->sport_mask);
 	attrs->upspec.proto = sel->proto;
 	attrs->prio = x->priority;
+	attrs->mode = x->xfrm_vec[0].mode;
 }
 
 static int mlx5e_xfrm_add_policy(struct xfrm_policy *x,

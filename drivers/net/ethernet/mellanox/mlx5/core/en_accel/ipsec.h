@@ -292,6 +292,7 @@ struct mlx5_accel_pol_xfrm_attrs {
 	struct mlx5e_ipsec_addr addrs;
 	struct upspec upspec;
 	u8 action;
+	u8 mode : 1;
 	u8 type : 2;
 	u8 dir : 2;
 	u32 reqid;
