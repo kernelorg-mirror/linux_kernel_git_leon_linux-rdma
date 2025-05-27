@@ -1716,7 +1716,8 @@ static int setup_modify_header(struct mlx5e_ipsec *ipsec, u8 type, u32 val,
 
 static int
 setup_pkt_tunnel_reformat(struct mlx5_core_dev *mdev,
-			  struct mlx5_accel_esp_xfrm_attrs *attrs,
+			  struct mlx5e_ipsec_addr *addrs, u8 dir, __be32 spi,
+			  u32 authsize,
 			  struct mlx5_pkt_reformat_params *reformat_params)
 {
 	struct ip_esp_hdr *esp_hdr;
@@ -1729,10 +1730,10 @@ setup_pkt_tunnel_reformat(struct mlx5_core_dev *mdev,
 
 	bfflen = sizeof(*eth_hdr);
 
-	if (attrs->dir == XFRM_DEV_OFFLOAD_OUT) {
+	if (dir == XFRM_DEV_OFFLOAD_OUT) {
 		bfflen += sizeof(*esp_hdr) + 8;
 
-		switch (attrs->addrs.family) {
+		switch (addrs->family) {
 		case AF_INET:
 			bfflen += sizeof(*iphdr);
 			break;
@@ -1749,7 +1750,7 @@ setup_pkt_tunnel_reformat(struct mlx5_core_dev *mdev,
 		return -ENOMEM;
 
 	eth_hdr = (struct ethhdr *)reformatbf;
-	switch (attrs->addrs.family) {
+	switch (addrs->family) {
 	case AF_INET:
 		eth_hdr->h_proto = htons(ETH_P_IP);
 		break;
@@ -1760,23 +1761,23 @@ setup_pkt_tunnel_reformat(struct mlx5_core_dev *mdev,
 		goto free_reformatbf;
 	}
 
-	ether_addr_copy(eth_hdr->h_dest, attrs->addrs.dmac);
-	ether_addr_copy(eth_hdr->h_source, attrs->addrs.smac);
+	ether_addr_copy(eth_hdr->h_dest, addrs->dmac);
+	ether_addr_copy(eth_hdr->h_source, addrs->smac);
 
-	switch (attrs->dir) {
+	switch (dir) {
 	case XFRM_DEV_OFFLOAD_IN:
 		reformat_params->type = MLX5_REFORMAT_TYPE_L3_ESP_TUNNEL_TO_L2;
 		break;
 	case XFRM_DEV_OFFLOAD_OUT:
 		reformat_params->type = MLX5_REFORMAT_TYPE_L2_TO_L3_ESP_TUNNEL;
-		reformat_params->param_0 = attrs->authsize;
+		reformat_params->param_0 = authsize;
 
 		hdr = reformatbf + sizeof(*eth_hdr);
-		switch (attrs->addrs.family) {
+		switch (addrs->family) {
 		case AF_INET:
 			iphdr = (struct iphdr *)hdr;
-			memcpy(&iphdr->saddr, &attrs->addrs.saddr.a4, 4);
-			memcpy(&iphdr->daddr, &attrs->addrs.daddr.a4, 4);
+			memcpy(&iphdr->saddr, &addrs->saddr.a4, 4);
+			memcpy(&iphdr->daddr, &addrs->daddr.a4, 4);
 			iphdr->version = 4;
 			iphdr->ihl = 5;
 			iphdr->ttl = IPSEC_TUNNEL_DEFAULT_TTL;
@@ -1785,8 +1786,8 @@ setup_pkt_tunnel_reformat(struct mlx5_core_dev *mdev,
 			break;
 		case AF_INET6:
 			ipv6hdr = (struct ipv6hdr *)hdr;
-			memcpy(&ipv6hdr->saddr, &attrs->addrs.saddr.a6, 16);
-			memcpy(&ipv6hdr->daddr, &attrs->addrs.daddr.a6, 16);
+			memcpy(&ipv6hdr->saddr, &addrs->saddr.a6, 16);
+			memcpy(&ipv6hdr->daddr, &addrs->daddr.a6, 16);
 			ipv6hdr->nexthdr = IPPROTO_ESP;
 			ipv6hdr->version = 6;
 			ipv6hdr->hop_limit = IPSEC_TUNNEL_DEFAULT_TTL;
@@ -1797,7 +1798,7 @@ setup_pkt_tunnel_reformat(struct mlx5_core_dev *mdev,
 		}
 
 		esp_hdr = (struct ip_esp_hdr *)hdr;
-		esp_hdr->spi = htonl(attrs->spi);
+		esp_hdr->spi = spi;
 		break;
 	default:
 		goto free_reformatbf;
@@ -1812,21 +1813,21 @@ free_reformatbf:
 	return -EINVAL;
 }
 
-static int get_reformat_type(struct mlx5_accel_esp_xfrm_attrs *attrs)
+static int get_reformat_type(struct mlx5e_ipsec_addr *addrs, u8 dir, u8 encap)
 {
-	switch (attrs->dir) {
+	switch (dir) {
 	case XFRM_DEV_OFFLOAD_IN:
-		if (attrs->encap)
+		if (encap)
 			return MLX5_REFORMAT_TYPE_DEL_ESP_TRANSPORT_OVER_UDP;
 		return MLX5_REFORMAT_TYPE_DEL_ESP_TRANSPORT;
 	case XFRM_DEV_OFFLOAD_OUT:
-		if (attrs->addrs.family == AF_INET) {
-			if (attrs->encap)
+		if (addrs->family == AF_INET) {
+			if (encap)
 				return MLX5_REFORMAT_TYPE_ADD_ESP_TRANSPORT_OVER_UDPV4;
 			return MLX5_REFORMAT_TYPE_ADD_ESP_TRANSPORT_OVER_IPV4;
 		}
 
-		if (attrs->encap)
+		if (encap)
 			return MLX5_REFORMAT_TYPE_ADD_ESP_TRANSPORT_OVER_UDPV6;
 		return MLX5_REFORMAT_TYPE_ADD_ESP_TRANSPORT_OVER_IPV6;
 	default:
@@ -1837,25 +1838,25 @@ static int get_reformat_type(struct mlx5_accel_esp_xfrm_attrs *attrs)
 }
 
 static int
-setup_pkt_transport_reformat(struct mlx5_accel_esp_xfrm_attrs *attrs,
+setup_pkt_transport_reformat(struct mlx5e_ipsec_addr *addrs, u8 dir, u8 encap,
+			     __be32 spi, u32 authsize,
 			     struct mlx5_pkt_reformat_params *reformat_params)
 {
 	struct udphdr *udphdr;
 	char *reformatbf;
 	size_t bfflen;
-	__be32 spi;
 	void *hdr;
 
-	reformat_params->type = get_reformat_type(attrs);
+	reformat_params->type = get_reformat_type(addrs, dir, encap);
 	if (reformat_params->type < 0)
 		return reformat_params->type;
 
-	switch (attrs->dir) {
+	switch (dir) {
 	case XFRM_DEV_OFFLOAD_IN:
 		break;
 	case XFRM_DEV_OFFLOAD_OUT:
 		bfflen = MLX5_REFORMAT_TYPE_ADD_ESP_TRANSPORT_SIZE;
-		if (attrs->encap)
+		if (encap)
 			bfflen += sizeof(*udphdr);
 
 		reformatbf = kzalloc(bfflen, GFP_KERNEL);
@@ -1863,18 +1864,17 @@ setup_pkt_transport_reformat(struct mlx5_accel_esp_xfrm_attrs *attrs,
 			return -ENOMEM;
 
 		hdr = reformatbf;
-		if (attrs->encap) {
+		if (encap) {
 			udphdr = (struct udphdr *)reformatbf;
-			udphdr->source = attrs->addrs.sport;
-			udphdr->dest = attrs->addrs.dport;
+			udphdr->source = addrs->sport;
+			udphdr->dest = addrs->dport;
 			hdr += sizeof(*udphdr);
 		}
 
 		/* convert to network format */
-		spi = htonl(attrs->spi);
 		memcpy(hdr, &spi, sizeof(spi));
 
-		reformat_params->param_0 = attrs->authsize;
+		reformat_params->param_0 = authsize;
 		reformat_params->size = bfflen;
 		reformat_params->data = reformatbf;
 		break;
@@ -1886,22 +1886,25 @@ setup_pkt_transport_reformat(struct mlx5_accel_esp_xfrm_attrs *attrs,
 }
 
 static int setup_pkt_reformat(struct mlx5e_ipsec *ipsec,
-			      struct mlx5_accel_esp_xfrm_attrs *attrs,
+			      struct mlx5e_ipsec_addr *addrs, u8 mode, u8 type,
+			      u8 dir, u8 encap, __be32 spi, u32 authsize,
 			      struct mlx5_flow_act *flow_act)
 {
-	enum mlx5_flow_namespace_type ns_type = ipsec_fs_get_ns(ipsec, attrs->type,
-								attrs->dir);
+	enum mlx5_flow_namespace_type ns_type =
+		ipsec_fs_get_ns(ipsec, type, dir);
 	struct mlx5_pkt_reformat_params reformat_params = {};
 	struct mlx5_core_dev *mdev = ipsec->mdev;
 	struct mlx5_pkt_reformat *pkt_reformat;
 	int ret;
 
-	switch (attrs->mode) {
+	switch (mode) {
 	case XFRM_MODE_TRANSPORT:
-		ret = setup_pkt_transport_reformat(attrs, &reformat_params);
+		ret = setup_pkt_transport_reformat(addrs, dir, encap, spi,
+						   authsize, &reformat_params);
 		break;
 	case XFRM_MODE_TUNNEL:
-		ret = setup_pkt_tunnel_reformat(mdev, attrs, &reformat_params);
+		ret = setup_pkt_tunnel_reformat(mdev, addrs, dir, spi, authsize,
+						&reformat_params);
 		break;
 	default:
 		ret = -EINVAL;
@@ -2047,7 +2050,10 @@ static int rx_add_rule(struct mlx5e_ipsec_sa_entry *sa_entry)
 
 	switch (attrs->type) {
 	case XFRM_DEV_OFFLOAD_PACKET:
-		err = setup_pkt_reformat(ipsec, attrs, &flow_act);
+		err = setup_pkt_reformat(ipsec, &attrs->addrs, attrs->mode,
+					 attrs->type, attrs->dir, attrs->encap,
+					 htonl(attrs->spi), attrs->authsize,
+					 &flow_act);
 		if (err)
 			goto err_pkt_reformat;
 		break;
@@ -2168,7 +2174,10 @@ static int tx_add_rule(struct mlx5e_ipsec_sa_entry *sa_entry)
 		break;
 	case XFRM_DEV_OFFLOAD_PACKET:
 		setup_fte_reg_c4(spec, attrs->reqid);
-		err = setup_pkt_reformat(ipsec, attrs, &flow_act);
+		err = setup_pkt_reformat(ipsec, &attrs->addrs, attrs->mode,
+					 attrs->type, attrs->dir, attrs->encap,
+					 htonl(attrs->spi), attrs->authsize,
+					 &flow_act);
 		if (err)
 			goto err_pkt_reformat;
 		break;
