@@ -370,6 +370,11 @@ neigh:
 		if (IS_ERR(n))
 			return;
 		neigh_event_send(n, NULL);
+		/*
+		 * We failed to find route for tunnel mode, so packets
+		 * will be dropped anyway. Make this drop more efficient
+		 * by using HW to perform it.
+		 */
 		attrs->drop = true;
 	} else {
 		neigh_ha_snapshot(addr, n, netdev);
