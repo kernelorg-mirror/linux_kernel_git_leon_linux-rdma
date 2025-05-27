@@ -158,7 +158,10 @@ struct mlx5e_ipsec_tx;
 
 struct mlx5e_ipsec_work {
 	struct work_struct work;
-	struct mlx5e_ipsec_sa_entry *sa_entry;
+	union {
+		struct mlx5e_ipsec_sa_entry *sa_entry;
+		struct mlx5e_ipsec_pol_entry *pol_entry;
+	};
 	void *data;
 };
 
@@ -240,6 +243,7 @@ struct mlx5e_ipsec_mpv_work {
 struct mlx5e_ipsec {
 	struct mlx5_core_dev *mdev;
 	struct xarray sadb;
+	struct xarray poldb;
 	struct mlx5e_ipsec_sw_stats sw_stats;
 	struct mlx5e_ipsec_hw_stats hw_stats;
 	struct workqueue_struct *wq;
@@ -292,6 +296,7 @@ struct mlx5_accel_pol_xfrm_attrs {
 	struct mlx5e_ipsec_addr addrs;
 	struct upspec upspec;
 	u8 action;
+	u8 drop : 1;
 	u8 mode : 1;
 	u8 type : 2;
 	u8 dir : 2;
@@ -302,8 +307,10 @@ struct mlx5_accel_pol_xfrm_attrs {
 struct mlx5e_ipsec_pol_entry {
 	struct xfrm_policy *x;
 	struct mlx5e_ipsec *ipsec;
+	struct mlx5e_ipsec_work *work;
 	struct mlx5e_ipsec_rule ipsec_rule;
 	struct mlx5_accel_pol_xfrm_attrs attrs;
+	u32 idx;
 };
 
 #ifdef CONFIG_MLX5_EN_IPSEC
@@ -319,6 +326,7 @@ void mlx5e_accel_ipsec_fs_del_rule(struct mlx5e_ipsec_sa_entry *sa_entry);
 int mlx5e_accel_ipsec_fs_add_pol(struct mlx5e_ipsec_pol_entry *pol_entry);
 void mlx5e_accel_ipsec_fs_del_pol(struct mlx5e_ipsec_pol_entry *pol_entry);
 void mlx5e_accel_ipsec_fs_modify(struct mlx5e_ipsec_sa_entry *sa_entry);
+void mlx5e_ipsec_fs_pol_modify(struct mlx5e_ipsec_pol_entry *pol_entry);
 bool mlx5e_ipsec_fs_tunnel_enabled(struct mlx5e_ipsec_sa_entry *sa_entry);
 
 int mlx5_ipsec_create_sa_ctx(struct mlx5e_ipsec_sa_entry *sa_entry);

@@ -2373,20 +2373,13 @@ static int rx_add_policy(struct mlx5e_ipsec_pol_entry *pol_entry)
 		break;
 	}
 
-	switch (attrs->action) {
-	case XFRM_POLICY_ALLOW:
+	if (attrs->action == XFRM_POLICY_ALLOW && !attrs->drop) {
 		flow_act.action |= MLX5_FLOW_CONTEXT_ACTION_FWD_DEST;
-		break;
-	case XFRM_POLICY_BLOCK:
+	} else {
 		flow_act.action |= MLX5_FLOW_CONTEXT_ACTION_DROP | MLX5_FLOW_CONTEXT_ACTION_COUNT;
 		dest[dstn].type = MLX5_FLOW_DESTINATION_TYPE_COUNTER;
 		dest[dstn].counter = rx->fc->drop;
 		dstn++;
-		break;
-	default:
-		WARN_ON(true);
-		err = -EINVAL;
-		goto err_action;
 	}
 
 	flow_act.flags |= FLOW_ACT_NO_APPEND;
@@ -2859,6 +2852,23 @@ void mlx5e_accel_ipsec_fs_modify(struct mlx5e_ipsec_sa_entry *sa_entry)
 
 	mlx5e_accel_ipsec_fs_del_rule(sa_entry);
 	memcpy(sa_entry, &sa_entry_shadow, sizeof(*sa_entry));
+}
+
+void mlx5e_ipsec_fs_pol_modify(struct mlx5e_ipsec_pol_entry *pol_entry)
+{
+	struct mlx5e_ipsec_pol_entry pol_entry_shadow = {};
+	int err;
+
+	memcpy(&pol_entry_shadow, pol_entry, sizeof(*pol_entry));
+	memset(&pol_entry_shadow.ipsec_rule, 0x00,
+	       sizeof(pol_entry->ipsec_rule));
+
+	err = mlx5e_accel_ipsec_fs_add_pol(&pol_entry_shadow);
+	if (err)
+		return;
+
+	mlx5e_accel_ipsec_fs_del_pol(pol_entry);
+	memcpy(pol_entry, &pol_entry_shadow, sizeof(*pol_entry));
 }
 
 bool mlx5e_ipsec_fs_tunnel_enabled(struct mlx5e_ipsec_sa_entry *sa_entry)
