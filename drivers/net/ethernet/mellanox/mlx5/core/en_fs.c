@@ -883,6 +883,7 @@ void mlx5e_fs_init_l2_addr(struct mlx5e_flow_steering *fs, struct net_device *ne
 {
 	ether_addr_copy(fs->l2.broadcast.addr, netdev->broadcast);
 }
+EXPORT_SYMBOL(mlx5e_fs_init);
 
 void mlx5e_destroy_flow_table(struct mlx5e_flow_table *ft)
 {
@@ -1273,6 +1274,7 @@ void mlx5e_destroy_ttc_table(struct mlx5e_flow_steering *fs)
 {
 	mlx5_destroy_ttc_table(fs->ttc);
 }
+EXPORT_SYMBOL(mlx5e_destroy_ttc_table);
 
 static int mlx5e_create_inner_ttc_table(struct mlx5e_flow_steering *fs,
 					struct mlx5e_rx_res *rx_res)
@@ -1297,6 +1299,7 @@ int mlx5e_create_ttc_table(struct mlx5e_flow_steering *fs,
 	fs->ttc = mlx5_create_ttc_table(fs->mdev, &ttc_params);
 	return PTR_ERR_OR_ZERO(fs->ttc);
 }
+EXPORT_SYMBOL(mlx5e_create_ttc_table);
 
 int mlx5e_create_flow_steering(struct mlx5e_flow_steering *fs,
 			       struct mlx5e_rx_res *rx_res,
@@ -1494,6 +1497,7 @@ void mlx5e_fs_cleanup(struct mlx5e_flow_steering *fs)
 	mlx5e_fs_vlan_free(fs);
 	kvfree(fs);
 }
+EXPORT_SYMBOL(mlx5e_fs_cleanup);
 
 struct mlx5e_l2_table *mlx5e_fs_get_l2(struct mlx5e_flow_steering *fs)
 {
@@ -1512,6 +1516,7 @@ void mlx5e_fs_set_ns(struct mlx5e_flow_steering *fs, struct mlx5_flow_namespace 
 	else
 		fs->egress_ns = ns;
 }
+EXPORT_SYMBOL(mlx5e_fs_set_ns);
 
 struct mlx5_ttc_table *mlx5e_fs_get_ttc(struct mlx5e_flow_steering *fs, bool inner)
 {

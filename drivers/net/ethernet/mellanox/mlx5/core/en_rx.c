@@ -22,7 +22,6 @@
 #include "eswitch.h"
 #include "en_rep.h"
 #include "en/rep/tc.h"
-#include "ipoib/ipoib.h"
 #include "en_accel/ipsec.h"
 #include "en_accel/macsec.h"
 #include "en_accel/ipsec_rxtx.h"
@@ -309,15 +308,10 @@ static inline void mlx5e_put_rx_frag(struct mlx5e_rq *rq,
 		mlx5e_page_release_fragmented(rq, frag->frag_page);
 }
 
-static inline struct mlx5e_wqe_frag_info *get_frag(struct mlx5e_rq *rq, u16 ix)
-{
-	return &rq->wqe.frags[ix << rq->wqe.info.log_num_frags];
-}
-
 static int mlx5e_alloc_rx_wqe(struct mlx5e_rq *rq, struct mlx5e_rx_wqe_cyc *wqe,
 			      u16 ix)
 {
-	struct mlx5e_wqe_frag_info *frag = get_frag(rq, ix);
+	struct mlx5e_wqe_frag_info *frag = mlx5e_get_frag(rq, ix);
 	int err;
 	int i;
 
@@ -362,7 +356,7 @@ static void mlx5e_xsk_free_rx_wqe(struct mlx5e_wqe_frag_info *wi)
 
 static void mlx5e_dealloc_rx_wqe(struct mlx5e_rq *rq, u16 ix)
 {
-	struct mlx5e_wqe_frag_info *wi = get_frag(rq, ix);
+	struct mlx5e_wqe_frag_info *wi = mlx5e_get_frag(rq, ix);
 
 	if (rq->xsk_pool) {
 		mlx5e_xsk_free_rx_wqe(wi);
@@ -387,7 +381,7 @@ static void mlx5e_xsk_free_rx_wqes(struct mlx5e_rq *rq, u16 ix, int wqe_bulk)
 		int j = mlx5_wq_cyc_ctr2ix(wq, ix + i);
 		struct mlx5e_wqe_frag_info *wi;
 
-		wi = get_frag(rq, j);
+		wi = mlx5e_get_frag(rq, j);
 		/* The page is always put into the Reuse Ring, because there
 		 * is no way to return the page to the userspace when the
 		 * interface goes down.
@@ -405,7 +399,7 @@ static void mlx5e_free_rx_wqes(struct mlx5e_rq *rq, u16 ix, int wqe_bulk)
 		int j = mlx5_wq_cyc_ctr2ix(wq, ix + i);
 		struct mlx5e_wqe_frag_info *wi;
 
-		wi = get_frag(rq, j);
+		wi = mlx5e_get_frag(rq, j);
 		mlx5e_free_rx_wqe(rq, wi);
 	}
 }
@@ -460,7 +454,7 @@ err_free:
 		int j = mlx5_wq_cyc_ctr2ix(&rq->wqe.wq, ix + i);
 		struct mlx5e_wqe_frag_info *frag;
 
-		frag = get_frag(rq, j);
+		frag = mlx5e_get_frag(rq, j);
 		for (int k = 0; k < rq->wqe.info.num_frags; k++, frag++)
 			frag->flags |= BIT(MLX5E_WQE_FRAG_SKIP_RELEASE);
 	}
@@ -1317,16 +1311,6 @@ static void mlx5e_shampo_update_hdr(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe,
 	}
 }
 
-static inline void mlx5e_skb_set_hash(struct mlx5_cqe64 *cqe,
-				      struct sk_buff *skb)
-{
-	u8 cht = cqe->rss_hash_type;
-	int ht = (cht & CQE_RSS_HTYPE_L4) ? PKT_HASH_TYPE_L4 :
-		 (cht & CQE_RSS_HTYPE_IP) ? PKT_HASH_TYPE_L3 :
-					    PKT_HASH_TYPE_NONE;
-	skb_set_hash(skb, be32_to_cpu(cqe->rss_hash_result), ht);
-}
-
 static inline bool is_last_ethertype_ip(struct sk_buff *skb, int *network_depth,
 					__be16 *proto)
 {
@@ -1634,9 +1618,9 @@ static void mlx5e_fill_mxbuf(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe,
 	mxbuf->rq = rq;
 }
 
-static struct sk_buff *
-mlx5e_skb_from_cqe_linear(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_info *wi,
-			  struct mlx5_cqe64 *cqe, u32 cqe_bcnt)
+struct sk_buff *mlx5e_skb_from_cqe_linear(struct mlx5e_rq *rq,
+					  struct mlx5e_wqe_frag_info *wi,
+					  struct mlx5_cqe64 *cqe, u32 cqe_bcnt)
 {
 	struct mlx5e_frag_page *frag_page = wi->frag_page;
 	u16 rx_headroom = rq->buff.headroom;
@@ -1681,10 +1665,12 @@ mlx5e_skb_from_cqe_linear(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_info *wi,
 
 	return skb;
 }
+EXPORT_SYMBOL(mlx5e_skb_from_cqe_linear);
 
-static struct sk_buff *
-mlx5e_skb_from_cqe_nonlinear(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_info *wi,
-			     struct mlx5_cqe64 *cqe, u32 cqe_bcnt)
+struct sk_buff *mlx5e_skb_from_cqe_nonlinear(struct mlx5e_rq *rq,
+					     struct mlx5e_wqe_frag_info *wi,
+					     struct mlx5_cqe64 *cqe,
+					     u32 cqe_bcnt)
 {
 	struct mlx5e_rq_frag_info *frag_info = &rq->wqe.info.arr[0];
 	struct mlx5e_xdp_buff *mxbuf = &rq->mxbuf;
@@ -1769,6 +1755,7 @@ mlx5e_skb_from_cqe_nonlinear(struct mlx5e_rq *rq, struct mlx5e_wqe_frag_info *wi
 
 	return skb;
 }
+EXPORT_SYMBOL(mlx5e_skb_from_cqe_nonlinear);
 
 static void trigger_report(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 {
@@ -1797,7 +1784,7 @@ static void mlx5e_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 	u16 ci;
 
 	ci       = mlx5_wq_cyc_ctr2ix(wq, be16_to_cpu(cqe->wqe_counter));
-	wi       = get_frag(rq, ci);
+	wi       = mlx5e_get_frag(rq, ci);
 	cqe_bcnt = be32_to_cpu(cqe->byte_cnt);
 
 	if (unlikely(MLX5E_RX_ERR_CQE(cqe))) {
@@ -1845,7 +1832,7 @@ static void mlx5e_handle_rx_cqe_rep(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
 	u16 ci;
 
 	ci       = mlx5_wq_cyc_ctr2ix(wq, be16_to_cpu(cqe->wqe_counter));
-	wi       = get_frag(rq, ci);
+	wi       = mlx5e_get_frag(rq, ci);
 	cqe_bcnt = be32_to_cpu(cqe->byte_cnt);
 
 	if (unlikely(MLX5E_RX_ERR_CQE(cqe))) {
@@ -2518,138 +2505,6 @@ int mlx5e_poll_rx_cq(struct mlx5e_cq *cq, int budget)
 	return work_done;
 }
 
-#ifdef CONFIG_MLX5_CORE_IPOIB
-
-#define MLX5_IB_GRH_SGID_OFFSET 8
-#define MLX5_IB_GRH_DGID_OFFSET 24
-#define MLX5_GID_SIZE           16
-
-static inline void mlx5i_complete_rx_cqe(struct mlx5e_rq *rq,
-					 struct mlx5_cqe64 *cqe,
-					 u32 cqe_bcnt,
-					 struct sk_buff *skb)
-{
-	struct hwtstamp_config *tstamp;
-	struct mlx5e_rq_stats *stats;
-	struct net_device *netdev;
-	struct mlx5e_priv *priv;
-	char *pseudo_header;
-	u32 flags_rqpn;
-	u32 qpn;
-	u8 *dgid;
-	u8 g;
-
-	qpn = be32_to_cpu(cqe->sop_drop_qpn) & 0xffffff;
-	netdev = mlx5i_pkey_get_netdev(rq->netdev, qpn);
-
-	/* No mapping present, cannot process SKB. This might happen if a child
-	 * interface is going down while having unprocessed CQEs on parent RQ
-	 */
-	if (unlikely(!netdev)) {
-		/* TODO: add drop counters support */
-		skb->dev = NULL;
-		pr_warn_once("Unable to map QPN %u to dev - dropping skb\n", qpn);
-		return;
-	}
-
-	priv = mlx5i_epriv(netdev);
-	tstamp = &priv->tstamp;
-	stats = &priv->channel_stats[rq->ix]->rq;
-
-	flags_rqpn = be32_to_cpu(cqe->flags_rqpn);
-	g = (flags_rqpn >> 28) & 3;
-	dgid = skb->data + MLX5_IB_GRH_DGID_OFFSET;
-	if ((!g) || dgid[0] != 0xff)
-		skb->pkt_type = PACKET_HOST;
-	else if (memcmp(dgid, netdev->broadcast + 4, MLX5_GID_SIZE) == 0)
-		skb->pkt_type = PACKET_BROADCAST;
-	else
-		skb->pkt_type = PACKET_MULTICAST;
-
-	/* Drop packets that this interface sent, ie multicast packets
-	 * that the HCA has replicated.
-	 */
-	if (g && (qpn == (flags_rqpn & 0xffffff)) &&
-	    (memcmp(netdev->dev_addr + 4, skb->data + MLX5_IB_GRH_SGID_OFFSET,
-		    MLX5_GID_SIZE) == 0)) {
-		skb->dev = NULL;
-		return;
-	}
-
-	skb_pull(skb, MLX5_IB_GRH_BYTES);
-
-	skb->protocol = *((__be16 *)(skb->data));
-
-	if (netdev->features & NETIF_F_RXCSUM) {
-		skb->ip_summed = CHECKSUM_COMPLETE;
-		skb->csum = csum_unfold((__force __sum16)cqe->check_sum);
-		stats->csum_complete++;
-	} else {
-		skb->ip_summed = CHECKSUM_NONE;
-		stats->csum_none++;
-	}
-
-	if (unlikely(mlx5e_rx_hw_stamp(tstamp)))
-		skb_hwtstamps(skb)->hwtstamp = mlx5e_cqe_ts_to_ns(rq->ptp_cyc2time,
-								  rq->clock, get_cqe_ts(cqe));
-	skb_record_rx_queue(skb, rq->ix);
-
-	if (likely(netdev->features & NETIF_F_RXHASH))
-		mlx5e_skb_set_hash(cqe, skb);
-
-	/* 20 bytes of ipoib header and 4 for encap existing */
-	pseudo_header = skb_push(skb, MLX5_IPOIB_PSEUDO_LEN);
-	memset(pseudo_header, 0, MLX5_IPOIB_PSEUDO_LEN);
-	skb_reset_mac_header(skb);
-	skb_pull(skb, MLX5_IPOIB_HARD_LEN);
-
-	skb->dev = netdev;
-
-	stats->packets++;
-	stats->bytes += cqe_bcnt;
-}
-
-static void mlx5i_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe)
-{
-	struct mlx5_wq_cyc *wq = &rq->wqe.wq;
-	struct mlx5e_wqe_frag_info *wi;
-	struct sk_buff *skb;
-	u32 cqe_bcnt;
-	u16 ci;
-
-	ci       = mlx5_wq_cyc_ctr2ix(wq, be16_to_cpu(cqe->wqe_counter));
-	wi       = get_frag(rq, ci);
-	cqe_bcnt = be32_to_cpu(cqe->byte_cnt);
-
-	if (unlikely(MLX5E_RX_ERR_CQE(cqe))) {
-		rq->stats->wqe_err++;
-		goto wq_cyc_pop;
-	}
-
-	skb = INDIRECT_CALL_2(rq->wqe.skb_from_cqe,
-			      mlx5e_skb_from_cqe_linear,
-			      mlx5e_skb_from_cqe_nonlinear,
-			      rq, wi, cqe, cqe_bcnt);
-	if (!skb)
-		goto wq_cyc_pop;
-
-	mlx5i_complete_rx_cqe(rq, cqe, cqe_bcnt, skb);
-	if (unlikely(!skb->dev)) {
-		dev_kfree_skb_any(skb);
-		goto wq_cyc_pop;
-	}
-	napi_gro_receive(rq->cq.napi, skb);
-
-wq_cyc_pop:
-	mlx5_wq_cyc_pop(wq);
-}
-
-const struct mlx5e_rx_handlers mlx5i_rx_handlers = {
-	.handle_rx_cqe       = mlx5i_handle_rx_cqe,
-	.handle_rx_cqe_mpwqe = NULL, /* Not supported */
-};
-#endif /* CONFIG_MLX5_CORE_IPOIB */
-
 int mlx5e_rq_set_handlers(struct mlx5e_rq *rq, struct mlx5e_params *params, bool xsk)
 {
 	struct net_device *netdev = rq->netdev;
@@ -2710,7 +2565,7 @@ static void mlx5e_trap_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe
 
 	trap_id  = get_cqe_flow_tag(cqe);
 	ci       = mlx5_wq_cyc_ctr2ix(wq, be16_to_cpu(cqe->wqe_counter));
-	wi       = get_frag(rq, ci);
+	wi       = mlx5e_get_frag(rq, ci);
 	cqe_bcnt = be32_to_cpu(cqe->byte_cnt);
 
 	if (unlikely(MLX5E_RX_ERR_CQE(cqe))) {

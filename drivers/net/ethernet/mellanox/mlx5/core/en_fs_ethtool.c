@@ -996,6 +996,7 @@ int mlx5e_ethtool_set_rxnfc(struct mlx5e_priv *priv, struct ethtool_rxnfc *cmd)
 
 	return err;
 }
+EXPORT_SYMBOL(mlx5e_ethtool_set_rxnfc);
 
 int mlx5e_ethtool_get_rxnfc(struct mlx5e_priv *priv,
 			    struct ethtool_rxnfc *info, u32 *rule_locs)
@@ -1023,4 +1024,4 @@ int mlx5e_ethtool_get_rxnfc(struct mlx5e_priv *priv,
 
 	return err;
 }
-
+EXPORT_SYMBOL(mlx5e_ethtool_get_rxnfc);

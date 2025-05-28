@@ -30,3 +30,8 @@ mlx5_ib-$(CONFIG_INFINIBAND_USER_ACCESS) += devx.o \
 					    qos.o \
 					    std_types.o
 mlx5_ib-$(CONFIG_MLX5_MACSEC) += macsec.o
+
+ifdef CONFIG_MLX5_IPOIB
+ccflags-y += -I$(srctree)/drivers/net/ethernet/mellanox/mlx5/core
+mlx5_ib-$(CONFIG_MLX5_IPOIB) += ipoib.o ethtool.o ipoib_vlan.o
+endif #MLX5_IPOIB

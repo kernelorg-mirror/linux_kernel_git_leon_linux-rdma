@@ -2852,6 +2852,7 @@ err_out:
 	chs->num = 0;
 	return err;
 }
+EXPORT_SYMBOL(mlx5e_open_channels);
 
 static void mlx5e_activate_channels(struct mlx5e_priv *priv, struct mlx5e_channels *chs)
 {
@@ -2918,6 +2919,7 @@ void mlx5e_close_channels(struct mlx5e_channels *chs)
 	kfree(chs->c);
 	chs->num = 0;
 }
+EXPORT_SYMBOL(mlx5e_close_channels);
 
 static int mlx5e_modify_tirs_packet_merge(struct mlx5e_priv *priv)
 {
@@ -2993,6 +2995,7 @@ void mlx5e_set_netdev_mtu_boundaries(struct mlx5e_priv *priv)
 	netdev->max_mtu = min_t(unsigned int, MLX5E_HW2SW_MTU(params, max_mtu),
 				ETH_MAX_MTU);
 }
+EXPORT_SYMBOL(mlx5e_set_netdev_mtu_boundaries);
 
 static int mlx5e_netdev_set_tcs(struct net_device *netdev, u16 nch, u8 ntc,
 				struct netdev_tc_txq *tc_to_txq)
@@ -3203,6 +3206,7 @@ void mlx5e_activate_priv_channels(struct mlx5e_priv *priv)
 	if (priv->rx_res)
 		mlx5e_rx_res_channels_activate(priv->rx_res, &priv->channels);
 }
+EXPORT_SYMBOL(mlx5e_activate_priv_channels);
 
 static void mlx5e_cancel_tx_timeout_work(struct mlx5e_priv *priv)
 {
@@ -3232,6 +3236,7 @@ void mlx5e_deactivate_priv_channels(struct mlx5e_priv *priv)
 	mlx5e_xdp_tx_disable(priv);
 	mlx5e_deactivate_channels(&priv->channels);
 }
+EXPORT_SYMBOL(mlx5e_deactivate_priv_channels);
 
 static int mlx5e_switch_priv_params(struct mlx5e_priv *priv,
 				    struct mlx5e_params *new_params,
@@ -3337,6 +3342,7 @@ err_cancel_selq:
 	kfree(new_chs);
 	return err;
 }
+EXPORT_SYMBOL(mlx5e_safe_switch_params);
 
 int mlx5e_safe_reopen_channels(struct mlx5e_priv *priv)
 {
@@ -3348,6 +3354,7 @@ void mlx5e_timestamp_init(struct mlx5e_priv *priv)
 	priv->tstamp.tx_type   = HWTSTAMP_TX_OFF;
 	priv->tstamp.rx_filter = HWTSTAMP_FILTER_NONE;
 }
+EXPORT_SYMBOL(mlx5e_timestamp_init);
 
 static void mlx5e_modify_admin_state(struct mlx5_core_dev *mdev,
 				     enum mlx5_port_status state)
@@ -3537,6 +3544,7 @@ err_free_cq:
 
 	return err;
 }
+EXPORT_SYMBOL(mlx5e_open_drop_rq);
 
 void mlx5e_close_drop_rq(struct mlx5e_rq *drop_rq)
 {
@@ -3545,6 +3553,7 @@ void mlx5e_close_drop_rq(struct mlx5e_rq *drop_rq)
 	mlx5e_destroy_cq(&drop_rq->cq);
 	mlx5e_free_cq(&drop_rq->cq);
 }
+EXPORT_SYMBOL(mlx5e_close_drop_rq);
 
 static void mlx5e_cleanup_nic_tx(struct mlx5e_priv *priv)
 {
@@ -4713,6 +4722,7 @@ err_unlock:
 	mutex_unlock(&priv->state_lock);
 	return err;
 }
+EXPORT_SYMBOL(mlx5e_hwstamp_set);
 
 int mlx5e_hwstamp_get(struct mlx5e_priv *priv, struct ifreq *ifr)
 {
@@ -4723,6 +4733,7 @@ int mlx5e_hwstamp_get(struct mlx5e_priv *priv, struct ifreq *ifr)
 
 	return copy_to_user(ifr->ifr_data, cfg, sizeof(*cfg)) ? -EFAULT : 0;
 }
+EXPORT_SYMBOL(mlx5e_hwstamp_get);
 
 static int mlx5e_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
@@ -5263,6 +5274,7 @@ void mlx5e_build_nic_params(struct mlx5e_priv *priv, struct mlx5e_xsk *xsk, u16 
 	 * To update netdev->features please modify mlx5e_fix_features()
 	 */
 }
+EXPORT_SYMBOL(mlx5e_build_nic_params);
 
 static void mlx5e_set_netdev_dev_addr(struct net_device *netdev)
 {
@@ -5625,6 +5637,7 @@ void mlx5e_create_q_counters(struct mlx5e_priv *priv)
 		priv->drop_rq_q_counter =
 			MLX5_GET(alloc_q_counter_out, out, counter_set_id);
 }
+EXPORT_SYMBOL(mlx5e_create_q_counters);
 
 void mlx5e_destroy_q_counters(struct mlx5e_priv *priv)
 {
@@ -5648,6 +5661,7 @@ void mlx5e_destroy_q_counters(struct mlx5e_priv *priv)
 		mlx5_cmd_exec_in(priv->mdev, dealloc_q_counter, in);
 	}
 }
+EXPORT_SYMBOL(mlx5e_destroy_q_counters);
 
 static int mlx5e_nic_init(struct mlx5_core_dev *mdev,
 			  struct net_device *netdev)
@@ -6044,6 +6058,7 @@ err_free_cpumask:
 	free_cpumask_var(priv->scratchpad.cpumask);
 	return -ENOMEM;
 }
+EXPORT_SYMBOL(mlx5e_priv_init);
 
 void mlx5e_priv_cleanup(struct mlx5e_priv *priv)
 {
@@ -6074,6 +6089,7 @@ void mlx5e_priv_cleanup(struct mlx5e_priv *priv)
 
 	memset(priv, 0, sizeof(*priv));
 }
+EXPORT_SYMBOL(mlx5e_priv_cleanup);
 
 static unsigned int mlx5e_get_max_num_txqs(struct mlx5_core_dev *mdev,
 					   const struct mlx5e_profile *profile)
@@ -6237,6 +6253,7 @@ out:
 	cancel_work_sync(&priv->update_stats_work);
 	return err;
 }
+EXPORT_SYMBOL(mlx5e_attach_netdev);
 
 void mlx5e_detach_netdev(struct mlx5e_priv *priv)
 {
@@ -6256,6 +6273,7 @@ void mlx5e_detach_netdev(struct mlx5e_priv *priv)
 	mlx5e_reset_channels(priv->netdev);
 	cancel_work_sync(&priv->update_stats_work);
 }
+EXPORT_SYMBOL(mlx5e_detach_netdev);
 
 static int
 mlx5e_netdev_init_profile(struct net_device *netdev, struct mlx5_core_dev *mdev,

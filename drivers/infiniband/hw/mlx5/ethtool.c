@@ -4,7 +4,6 @@
  * Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All righ reserved.
  */
 
-#include "en.h"
 #include "ipoib.h"
 #include "en/fs_ethtool.h"
 

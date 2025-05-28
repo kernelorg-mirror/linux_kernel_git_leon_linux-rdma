@@ -487,6 +487,7 @@ err_rx_res_free:
 	mlx5e_rx_res_free(res);
 	return ERR_PTR(err);
 }
+EXPORT_SYMBOL(mlx5e_rx_res_create);
 
 void mlx5e_rx_res_destroy(struct mlx5e_rx_res *res)
 {
@@ -495,6 +496,7 @@ void mlx5e_rx_res_destroy(struct mlx5e_rx_res *res)
 	mlx5e_rx_res_rss_destroy_all(res);
 	mlx5e_rx_res_free(res);
 }
+EXPORT_SYMBOL(mlx5e_rx_res_destroy);
 
 unsigned int mlx5e_rx_res_get_max_nch(struct mlx5e_rx_res *res)
 {

@@ -90,11 +90,6 @@ mlx5_core-$(CONFIG_PTP_1588_CLOCK) += lib/clock.o
 mlx5_core-$(CONFIG_PCI_HYPERV_INTERFACE) += lib/hv.o lib/hv_vhca.o
 
 #
-# Ipoib netdev
-#
-mlx5_core-$(CONFIG_MLX5_CORE_IPOIB) += ipoib/ipoib.o ipoib/ethtool.o ipoib/ipoib_vlan.o
-
-#
 # Accelerations & FPGA
 #
 mlx5_core-$(CONFIG_MLX5_FPGA) += fpga/cmd.o fpga/core.o fpga/conn.o fpga/sdk.o

@@ -50,6 +50,7 @@
 #include <rdma/ib_ucaps.h>
 #include "macsec.h"
 #include "data_direct.h"
+#include "ipoib.h"
 
 #define UVERBS_MODULE_NAME mlx5_ib
 #include <rdma/uverbs_named_ioctl.h>
@@ -4286,7 +4287,7 @@ static int mlx5_ib_stage_caps_init(struct mlx5_ib_dev *dev)
 	int err;
 
 	if (MLX5_CAP_GEN(mdev, ipoib_enhanced_offloads) &&
-	    IS_ENABLED(CONFIG_MLX5_CORE_IPOIB))
+	    IS_ENABLED(CONFIG_MLX5_IPOIB))
 		ib_set_device_ops(&dev->ib_dev,
 				  &mlx5_ib_dev_ipoib_enhanced_ops);
 

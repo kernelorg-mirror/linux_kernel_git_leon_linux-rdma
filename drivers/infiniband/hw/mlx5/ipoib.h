@@ -7,10 +7,10 @@
 #ifndef __MLX5E_IPOB_H__
 #define __MLX5E_IPOB_H__
 
-#ifdef CONFIG_MLX5_CORE_IPOIB
-
-#include <linux/mlx5/fs.h>
 #include "en.h"
+#include "wr.h"
+
+struct mlx5e_txqsq;
 
 #define MLX5I_MAX_NUM_TC 1
 
@@ -76,10 +76,6 @@ const struct mlx5e_profile *mlx5i_pkey_get_profile(void);
 /* Extract mlx5e_priv from IPoIB netdev */
 #define mlx5i_epriv(netdev) ((void *)(((struct mlx5i_priv *)netdev_priv(netdev))->mlx5e_priv))
 
-struct mlx5_wqe_eth_pad {
-	u8 rsvd0[16];
-};
-
 struct mlx5i_tx_wqe {
 	struct mlx5_wqe_ctrl_seg     ctrl;
 	struct mlx5_wqe_datagram_seg datagram;
@@ -91,13 +87,13 @@ struct mlx5i_tx_wqe {
 #define MLX5I_SQ_FETCH_WQE(sq, pi) \
 	((struct mlx5i_tx_wqe *)mlx5e_fetch_wqe(&(sq)->wq, pi, sizeof(struct mlx5i_tx_wqe)))
 
-void mlx5i_sq_xmit(struct mlx5e_txqsq *sq, struct sk_buff *skb,
-		   struct mlx5_av *av, u32 dqpn, u32 dqkey, bool xmit_more);
 void mlx5i_get_stats(struct net_device *dev, struct rtnl_link_stats64 *stats);
 
 /* Reference management for child to parent interfaces. */
 struct net_device *mlx5i_parent_get(struct net_device *netdev);
 void mlx5i_parent_put(struct net_device *netdev);
 
-#endif /* CONFIG_MLX5_CORE_IPOIB */
+int mlx5_rdma_rn_get_params(struct mlx5_core_dev *mdev,
+			    struct ib_device *device,
+			    struct rdma_netdev_alloc_params *params);
 #endif /* __MLX5E_IPOB_H__ */

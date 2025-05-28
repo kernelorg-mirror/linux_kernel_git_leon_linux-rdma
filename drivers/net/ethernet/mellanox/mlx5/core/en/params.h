@@ -81,8 +81,21 @@ int mlx5e_mpwrq_validate_regular(struct mlx5_core_dev *mdev, struct mlx5e_params
 int mlx5e_mpwrq_validate_xsk(struct mlx5_core_dev *mdev, struct mlx5e_params *params,
 			     struct mlx5e_xsk_param *xsk);
 void mlx5e_build_rq_params(struct mlx5_core_dev *mdev, struct mlx5e_params *params);
-void mlx5e_set_rq_type(struct mlx5_core_dev *mdev, struct mlx5e_params *params);
-void mlx5e_init_rq_type_params(struct mlx5_core_dev *mdev, struct mlx5e_params *params);
+static inline void mlx5e_set_rq_type(struct mlx5_core_dev *mdev,
+				     struct mlx5e_params *params)
+{
+	params->rq_wq_type = MLX5E_GET_PFLAG(params, MLX5E_PFLAG_RX_STRIDING_RQ) ?
+		MLX5_WQ_TYPE_LINKED_LIST_STRIDING_RQ :
+		MLX5_WQ_TYPE_CYCLIC;
+}
+
+static inline void mlx5e_init_rq_type_params(struct mlx5_core_dev *mdev,
+					     struct mlx5e_params *params)
+{
+	params->log_rq_mtu_frames = is_kdump_kernel() ?
+		MLX5E_PARAMS_MINIMUM_LOG_RQ_SIZE :
+		MLX5E_PARAMS_DEFAULT_LOG_RQ_SIZE;
+}
 
 u16 mlx5e_get_linear_rq_headroom(struct mlx5e_params *params,
 				 struct mlx5e_xsk_param *xsk);

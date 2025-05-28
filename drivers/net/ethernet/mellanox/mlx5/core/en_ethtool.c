@@ -63,6 +63,7 @@ void mlx5e_ethtool_get_drvinfo(struct mlx5e_priv *priv,
 	strscpy(drvinfo->bus_info, dev_name(mdev->device),
 		sizeof(drvinfo->bus_info));
 }
+EXPORT_SYMBOL(mlx5e_ethtool_get_drvinfo);
 
 static void mlx5e_get_drvinfo(struct net_device *dev,
 			      struct ethtool_drvinfo *drvinfo)
@@ -294,6 +295,7 @@ int mlx5e_ethtool_get_sset_count(struct mlx5e_priv *priv, int sset)
 		return -EOPNOTSUPP;
 	}
 }
+EXPORT_SYMBOL(mlx5e_ethtool_get_sset_count);
 
 static int mlx5e_get_sset_count(struct net_device *dev, int sset)
 {
@@ -321,6 +323,7 @@ void mlx5e_ethtool_get_strings(struct mlx5e_priv *priv, u32 stringset, u8 *data)
 		break;
 	}
 }
+EXPORT_SYMBOL(mlx5e_ethtool_get_strings);
 
 static void mlx5e_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 {
@@ -340,6 +343,7 @@ void mlx5e_ethtool_get_ethtool_stats(struct mlx5e_priv *priv,
 
 	mlx5e_stats_fill(priv, data, idx);
 }
+EXPORT_SYMBOL(mlx5e_ethtool_get_ethtool_stats);
 
 static void mlx5e_get_ethtool_stats(struct net_device *dev,
 				    struct ethtool_stats *stats,
@@ -372,6 +376,7 @@ void mlx5e_ethtool_get_ringparam(struct mlx5e_priv *priv,
 		ETHTOOL_TCP_DATA_SPLIT_ENABLED :
 		ETHTOOL_TCP_DATA_SPLIT_DISABLED;
 }
+EXPORT_SYMBOL(mlx5e_ethtool_get_ringparam);
 
 static void mlx5e_get_ringparam(struct net_device *dev,
 				struct ethtool_ringparam *param,
@@ -433,6 +438,7 @@ unlock:
 
 	return err;
 }
+EXPORT_SYMBOL(mlx5e_ethtool_set_ringparam);
 
 static int mlx5e_set_ringparam(struct net_device *dev,
 			       struct ethtool_ringparam *param,
@@ -460,6 +466,7 @@ static void mlx5e_get_channels(struct net_device *dev,
 
 	mlx5e_ethtool_get_channels(priv, ch);
 }
+EXPORT_SYMBOL(mlx5e_ethtool_get_channels);
 
 int mlx5e_ethtool_set_channels(struct mlx5e_priv *priv,
 			       struct ethtool_channels *ch)
@@ -557,6 +564,7 @@ out:
 
 	return err;
 }
+EXPORT_SYMBOL(mlx5e_ethtool_set_channels);
 
 static int mlx5e_set_channels(struct net_device *dev,
 			      struct ethtool_channels *ch)
@@ -592,6 +600,7 @@ int mlx5e_ethtool_get_coalesce(struct mlx5e_priv *priv,
 
 	return 0;
 }
+EXPORT_SYMBOL(mlx5e_ethtool_get_coalesce);
 
 static int mlx5e_get_coalesce(struct net_device *netdev,
 			      struct ethtool_coalesce *coal,
@@ -820,6 +829,7 @@ state_unlock:
 	mutex_unlock(&priv->state_lock);
 	return err;
 }
+EXPORT_SYMBOL(mlx5e_ethtool_set_coalesce);
 
 static int mlx5e_set_coalesce(struct net_device *netdev,
 			      struct ethtool_coalesce *coal,
@@ -1701,6 +1711,7 @@ int mlx5e_ethtool_get_ts_info(struct mlx5e_priv *priv,
 
 	return 0;
 }
+EXPORT_SYMBOL(mlx5e_ethtool_get_ts_info);
 
 static int mlx5e_get_ts_info(struct net_device *dev,
 			     struct kernel_ethtool_ts_info *info)
@@ -2065,6 +2076,7 @@ int mlx5e_ethtool_flash_device(struct mlx5e_priv *priv,
 
 	return err;
 }
+EXPORT_SYMBOL(mlx5e_ethtool_flash_device);
 
 static int mlx5e_flash_device(struct net_device *dev,
 			      struct ethtool_flash *flash)
