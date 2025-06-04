@@ -6,3 +6,7 @@ menuconfig DRIVERS_LIB
 	  See Documentation/driver-api/lib.rst for more details.
 
 	  If you don't know what to do here, say N.
+
+if DRIVERS_LIB
+source "drivers/lib/nvidia/Kconfig"
+endif #DRIVERS_LIB
