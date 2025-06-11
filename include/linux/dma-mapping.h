@@ -130,11 +130,12 @@ static inline int dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
 	return 0;
 }
 
-dma_addr_t dma_map_page_attrs(struct device *dev, struct page *page,
-		size_t offset, size_t size, enum dma_data_direction dir,
+dma_addr_t dma_map_phys(struct device *dev, phys_addr_t paddr, size_t size,
+		enum dma_data_direction dir, enum dma_mapping_type type,
 		unsigned long attrs);
-void dma_unmap_page_attrs(struct device *dev, dma_addr_t addr, size_t size,
-		enum dma_data_direction dir, unsigned long attrs);
+void dma_unmap_phys(struct device *dev, dma_addr_t addr, size_t size,
+		enum dma_data_direction dir, enum dma_mapping_type type,
+		unsigned long attrs);
 unsigned int dma_map_sg_attrs(struct device *dev, struct scatterlist *sg,
 		int nents, enum dma_data_direction dir, unsigned long attrs);
 void dma_unmap_sg_attrs(struct device *dev, struct scatterlist *sg,
@@ -179,13 +180,12 @@ void dma_vunmap_noncontiguous(struct device *dev, void *vaddr);
 int dma_mmap_noncontiguous(struct device *dev, struct vm_area_struct *vma,
 		size_t size, struct sg_table *sgt);
 #else /* CONFIG_HAS_DMA */
-static inline dma_addr_t dma_map_page_attrs(struct device *dev,
-		struct page *page, size_t offset, size_t size,
-		enum dma_data_direction dir, unsigned long attrs)
+static inline dma_addr_t dma_map_phys(struct device *dev, phys_addr_t paddr,
+		size_t size, enum dma_data_direction dir, unsigned long attrs)
 {
 	return DMA_MAPPING_ERROR;
 }
-static inline void dma_unmap_page_attrs(struct device *dev, dma_addr_t addr,
+static inline void dma_unmap_phys(struct device *dev, dma_addr_t addr,
 		size_t size, enum dma_data_direction dir, unsigned long attrs)
 {
 }
@@ -309,6 +309,19 @@ static inline int dma_mmap_noncontiguous(struct device *dev,
 	return -EINVAL;
 }
 #endif /* CONFIG_HAS_DMA */
+
+static inline dma_addr_t dma_map_page_attrs(struct device *dev,
+		struct page *page, size_t offset, size_t size,
+		enum dma_data_direction dir, unsigned long attrs)
+{
+	return dma_map_phys(dev, page_to_phys(page) + offset, size, dir,
+			    DMA_MAPPING_CPU_HOST, attrs);
+}
+static inline void dma_unmap_page_attrs(struct device *dev, dma_addr_t addr,
+		size_t size, enum dma_data_direction dir, unsigned long attrs)
+{
+	dma_unmap_phys(dev, addr, size, dir, DMA_MAPPING_CPU_HOST, attrs);
+}
 
 #ifdef CONFIG_IOMMU_DMA
 /**
