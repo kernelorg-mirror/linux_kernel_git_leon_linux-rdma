@@ -717,6 +717,7 @@ dma_addr_t hmm_dma_map_pfn(struct device *dev, struct hmm_dma_map *map,
 	struct page *page = hmm_pfn_to_page(pfns[idx]);
 	phys_addr_t paddr = hmm_pfn_to_phys(pfns[idx]);
 	size_t offset = idx * map->dma_entry_size;
+	enum dma_mapping_type type;
 	unsigned long attrs = 0;
 	dma_addr_t dma_addr;
 	int ret;
@@ -748,8 +749,10 @@ dma_addr_t hmm_dma_map_pfn(struct device *dev, struct hmm_dma_map *map,
 
 	switch (pci_p2pdma_state(p2pdma_state, dev, page)) {
 	case PCI_P2PDMA_MAP_NONE:
+		type = DMA_MAPPING_CPU_HOST;
 		break;
 	case PCI_P2PDMA_MAP_THRU_HOST_BRIDGE:
+		type = DMA_MAPPING_MMIO;
 		attrs |= DMA_ATTR_SKIP_CPU_SYNC;
 		pfns[idx] |= HMM_PFN_P2PDMA;
 		break;
@@ -779,8 +782,8 @@ dma_addr_t hmm_dma_map_pfn(struct device *dev, struct hmm_dma_map *map,
 		if (WARN_ON_ONCE(dma_need_unmap(dev) && !dma_addrs))
 			goto error;
 
-		dma_addr = dma_map_page(dev, page, 0, map->dma_entry_size,
-					DMA_BIDIRECTIONAL);
+		dma_addr = dma_map_phys(dev, paddr, map->dma_entry_size,
+					DMA_BIDIRECTIONAL, type, attrs);
 		if (dma_mapping_error(dev, dma_addr))
 			goto error;
 
@@ -807,6 +810,7 @@ EXPORT_SYMBOL_GPL(hmm_dma_map_pfn);
 bool hmm_dma_unmap_pfn(struct device *dev, struct hmm_dma_map *map, size_t idx)
 {
 	const unsigned long valid_dma = HMM_PFN_VALID | HMM_PFN_DMA_MAPPED;
+	enum dma_mapping_type type = DMA_MAPPING_CPU_HOST;
 	struct dma_iova_state *state = &map->state;
 	dma_addr_t *dma_addrs = map->dma_list;
 	unsigned long *pfns = map->pfn_list;
@@ -822,9 +826,12 @@ bool hmm_dma_unmap_pfn(struct device *dev, struct hmm_dma_map *map, size_t idx)
 			attrs |= DMA_ATTR_SKIP_CPU_SYNC;
 		dma_iova_unlink(dev, state, idx * map->dma_entry_size,
 				map->dma_entry_size, DMA_BIDIRECTIONAL, attrs);
-	} else if (dma_need_unmap(dev))
-		dma_unmap_page(dev, dma_addrs[idx], map->dma_entry_size,
-			       DMA_BIDIRECTIONAL);
+	} else if (dma_need_unmap(dev)) {
+		if (pfns[idx] & HMM_PFN_P2PDMA)
+			type = DMA_MAPPING_MMIO;
+		dma_unmap_phys(dev, dma_addrs[idx], map->dma_entry_size,
+			       DMA_BIDIRECTIONAL, type, attrs);
+	}
 
 	pfns[idx] &=
 		~(HMM_PFN_DMA_MAPPED | HMM_PFN_P2PDMA | HMM_PFN_P2PDMA_BUS);
