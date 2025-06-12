@@ -130,3 +130,21 @@ accesses to DMA buffers in both privileged "supervisor" and unprivileged
 subsystem that the buffer is fully accessible at the elevated privilege
 level (and ideally inaccessible or at least read-only at the
 lesser-privileged levels).
+
+DMA_ATTR_CPU_HOST
+_________________
+
+Used to indicate that the buffer is mapped for transfer backed by struct page.
+It is accessible by CPU and represents normal mapping.
+
+DMA_ATTR_MMIO
+_____________
+
+Used to indicate that the buffer is mapped for MMIO transfer. This buffer doesn't
+have struct page, and identified as peer-to-peer.
+
+DMA_ATTR_BUS_ADDR
+_________________
+
+Used to indicate that the buffer is mapped for peer-to-peer transfer and address
+is BUS address returned through pci-p2pdma routines.

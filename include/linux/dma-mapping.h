@@ -59,6 +59,25 @@
 #define DMA_ATTR_PRIVILEGED		(1UL << 9)
 
 /*
+ * DMA_ATTR_CPU_HOST: used to indicate that the buffer is mapped for transfer
+ * backed by struct page. It is accessible by CPU and represents normal mapping.
+ */
+#define DMA_ATTR_CPU_HOST		(1UL << 10)
+
+/*
+ * DMA_ATTR_MMIO: used to indicate that the buffer is mapped for MMIO transfer.
+ * This buffer doesn't have struct page, and identified as peer-to-peer.
+ */
+#define DMA_ATTR_MMIO			(1UL << 11)
+
+/*
+ * DMA_ATTR_BUS_ADDR: used to indicate that the buffer is mapped for
+ * peer-to-peer transfer and address is BUS address returned through
+ * pci-p2pdma routines.
+ */
+#define DMA_ATTR_BUS_ADDR		(1UL << 12)
+
+/*
  * A dma_addr_t can hold any valid DMA or bus address for the platform.  It can
  * be given to a device to use as a DMA source or target.  It is specific to a
  * given device and there may be a translation between the CPU physical address
