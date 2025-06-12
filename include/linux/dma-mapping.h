@@ -88,6 +88,23 @@ static inline size_t dma_iova_size(struct dma_iova_state *state)
 	return (size_t)(state->__size & ~DMA_IOVA_USE_SWIOTLB);
 }
 
+enum dma_mapping_type {
+	/*
+	 * Regular address, backed by struct page
+	 */
+	DMA_MAPPING_CPU_HOST,
+	/*
+	 * This is MMIO address space, declared as peer-to-peer page as
+	 * it doesn't have struct page.
+	 */
+	DMA_MAPPING_MMIO,
+	/*
+	 * Real peer-to-peer transfer, there is not need to perform
+	 * DMA mapping and address is returned through pci_p2pdma_bus_addr_map()
+	 */
+	DMA_MAPPING_BUS_ADDR
+};
+
 #ifdef CONFIG_DMA_API_DEBUG
 void debug_dma_mapping_error(struct device *dev, dma_addr_t dma_addr);
 void debug_dma_map_single(struct device *dev, const void *addr,
