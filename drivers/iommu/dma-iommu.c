@@ -1190,7 +1190,7 @@ static inline size_t iova_unaligned(struct iova_domain *iovad, phys_addr_t phys,
 	return iova_offset(iovad, phys | size);
 }
 
-dma_addr_t iommu_dma_map_phys(struct device *dev, phys_addr_t phys,
+static dma_addr_t __iommu_dma_map_phys(struct device *dev, phys_addr_t phys,
 	      size_t size, enum dma_data_direction dir, unsigned long attrs)
 {
 	bool coherent = dev_is_dma_coherent(dev);
@@ -1220,7 +1220,7 @@ dma_addr_t iommu_dma_map_phys(struct device *dev, phys_addr_t phys,
 	return iova;
 }
 
-void iommu_dma_unmap_phys(struct device *dev, dma_addr_t dma_handle,
+static void __iommu_dma_unmap_phys(struct device *dev, dma_addr_t dma_handle,
 		size_t size, enum dma_data_direction dir, unsigned long attrs)
 {
 	struct iommu_domain *domain = iommu_get_dma_domain(dev);
@@ -1339,7 +1339,7 @@ static void iommu_dma_unmap_sg_swiotlb(struct device *dev, struct scatterlist *s
 	int i;
 
 	for_each_sg(sg, s, nents, i)
-		iommu_dma_unmap_phys(dev, sg_dma_address(s),
+		__iommu_dma_unmap_phys(dev, sg_dma_address(s),
 				sg_dma_len(s), dir, attrs);
 }
 
@@ -1352,7 +1352,7 @@ static int iommu_dma_map_sg_swiotlb(struct device *dev, struct scatterlist *sg,
 	sg_dma_mark_swiotlb(sg);
 
 	for_each_sg(sg, s, nents, i) {
-		sg_dma_address(s) = iommu_dma_map_phys(dev, sg_phys(s),
+		sg_dma_address(s) = __iommu_dma_map_phys(dev, sg_phys(s),
 			s->length, dir, attrs);
 		if (sg_dma_address(s) == DMA_MAPPING_ERROR)
 			goto out_unmap;
@@ -1544,18 +1544,28 @@ void iommu_dma_unmap_sg(struct device *dev, struct scatterlist *sg, int nents,
 		__iommu_dma_unmap(dev, start, end - start);
 }
 
-dma_addr_t iommu_dma_map_resource(struct device *dev, phys_addr_t phys,
-		size_t size, enum dma_data_direction dir, unsigned long attrs)
+dma_addr_t iommu_dma_map_phys(struct device *dev, phys_addr_t phys,
+		size_t size, enum dma_data_direction dir,
+		enum dma_mapping_type type, unsigned long attrs)
 {
-	return __iommu_dma_map(dev, phys, size,
-			dma_info_to_prot(dir, false, attrs) | IOMMU_MMIO,
-			dma_get_mask(dev));
+	if (type == DMA_MAPPING_MMIO)
+		return __iommu_dma_map(dev, phys, size,
+				       dma_info_to_prot(dir, false, attrs) |
+					       IOMMU_MMIO,
+				       dma_get_mask(dev));
+
+	return __iommu_dma_map_phys(dev, phys, size, dir, attrs);
 }
 
-void iommu_dma_unmap_resource(struct device *dev, dma_addr_t handle,
-		size_t size, enum dma_data_direction dir, unsigned long attrs)
+void iommu_dma_unmap_phys(struct device *dev, dma_addr_t handle,
+		size_t size, enum dma_data_direction dir,
+		enum dma_mapping_type type, unsigned long attrs)
 {
-	__iommu_dma_unmap(dev, handle, size);
+	if (type == DMA_MAPPING_MMIO) {
+		__iommu_dma_unmap(dev, handle, size);
+		return;
+	}
+	__iommu_dma_unmap_phys(dev, handle, size, dir, attrs);
 }
 
 static void __iommu_dma_free(struct device *dev, size_t size, void *cpu_addr)

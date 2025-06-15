@@ -454,7 +454,8 @@ void dma_direct_unmap_sg(struct device *dev, struct scatterlist *sgl,
 			sg_dma_unmark_bus_address(sg);
 		else
 			dma_direct_unmap_phys(dev, sg->dma_address,
-					      sg_dma_len(sg), dir, attrs);
+					      sg_dma_len(sg), dir,
+					      DMA_MAPPING_CPU_HOST, attrs);
 	}
 }
 #endif
@@ -477,7 +478,8 @@ int dma_direct_map_sg(struct device *dev, struct scatterlist *sgl, int nents,
 			break;
 		case PCI_P2PDMA_MAP_NONE:
 			sg->dma_address = dma_direct_map_phys(
-				dev, sg_phys(sg), sg->length, dir, attrs);
+				dev, sg_phys(sg), sg->length, dir,
+				DMA_MAPPING_CPU_HOST, attrs);
 			if (sg->dma_address == DMA_MAPPING_ERROR) {
 				ret = -EIO;
 				goto out_unmap;
@@ -500,22 +502,6 @@ int dma_direct_map_sg(struct device *dev, struct scatterlist *sgl, int nents,
 out_unmap:
 	dma_direct_unmap_sg(dev, sgl, i, dir, attrs | DMA_ATTR_SKIP_CPU_SYNC);
 	return ret;
-}
-
-dma_addr_t dma_direct_map_resource(struct device *dev, phys_addr_t paddr,
-		size_t size, enum dma_data_direction dir, unsigned long attrs)
-{
-	dma_addr_t dma_addr = paddr;
-
-	if (unlikely(!dma_capable(dev, dma_addr, size, false))) {
-		dev_err_once(dev,
-			     "DMA addr %pad+%zu overflow (mask %llx, bus limit %llx).\n",
-			     &dma_addr, size, *dev->dma_mask, dev->bus_dma_limit);
-		WARN_ON_ONCE(1);
-		return DMA_MAPPING_ERROR;
-	}
-
-	return dma_addr;
 }
 
 int dma_direct_get_sgtable(struct device *dev, struct sg_table *sgt,

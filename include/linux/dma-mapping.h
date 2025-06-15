@@ -143,10 +143,6 @@ void dma_unmap_sg_attrs(struct device *dev, struct scatterlist *sg,
 				      unsigned long attrs);
 int dma_map_sgtable(struct device *dev, struct sg_table *sgt,
 		enum dma_data_direction dir, unsigned long attrs);
-dma_addr_t dma_map_resource(struct device *dev, phys_addr_t phys_addr,
-		size_t size, enum dma_data_direction dir, unsigned long attrs);
-void dma_unmap_resource(struct device *dev, dma_addr_t addr, size_t size,
-		enum dma_data_direction dir, unsigned long attrs);
 void *dma_alloc_attrs(struct device *dev, size_t size, dma_addr_t *dma_handle,
 		gfp_t flag, unsigned long attrs);
 void dma_free_attrs(struct device *dev, size_t size, void *cpu_addr,
@@ -204,16 +200,6 @@ static inline int dma_map_sgtable(struct device *dev, struct sg_table *sgt,
 		enum dma_data_direction dir, unsigned long attrs)
 {
 	return -EOPNOTSUPP;
-}
-static inline dma_addr_t dma_map_resource(struct device *dev,
-		phys_addr_t phys_addr, size_t size, enum dma_data_direction dir,
-		unsigned long attrs)
-{
-	return DMA_MAPPING_ERROR;
-}
-static inline void dma_unmap_resource(struct device *dev, dma_addr_t addr,
-		size_t size, enum dma_data_direction dir, unsigned long attrs)
-{
 }
 static inline int dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
 {
@@ -321,6 +307,17 @@ static inline void dma_unmap_page_attrs(struct device *dev, dma_addr_t addr,
 		size_t size, enum dma_data_direction dir, unsigned long attrs)
 {
 	dma_unmap_phys(dev, addr, size, dir, DMA_MAPPING_CPU_HOST, attrs);
+}
+static inline dma_addr_t dma_map_resource(struct device *dev,
+		phys_addr_t phys_addr, size_t size, enum dma_data_direction dir,
+		unsigned long attrs)
+{
+	return dma_map_phys(dev, phys_addr, size, dir, DMA_MAPPING_MMIO, attrs);
+}
+static inline void dma_unmap_resource(struct device *dev, dma_addr_t addr,
+		size_t size, enum dma_data_direction dir, unsigned long attrs)
+{
+	dma_unmap_phys(dev, addr, size, dir, DMA_MAPPING_MMIO, attrs);
 }
 
 #ifdef CONFIG_IOMMU_DMA

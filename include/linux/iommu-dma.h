@@ -22,9 +22,11 @@ static inline bool use_dma_iommu(struct device *dev)
 #endif /* CONFIG_IOMMU_DMA */
 
 dma_addr_t iommu_dma_map_phys(struct device *dev, phys_addr_t phys,
-		size_t size, enum dma_data_direction dir, unsigned long attrs);
+		size_t size, enum dma_data_direction dir,
+		enum dma_mapping_type type, unsigned long attrs);
 void iommu_dma_unmap_phys(struct device *dev, dma_addr_t dma_handle,
-		size_t size, enum dma_data_direction dir, unsigned long attrs);
+		size_t size, enum dma_data_direction dir,
+		enum dma_mapping_type type, unsigned long attrs);
 int iommu_dma_map_sg(struct device *dev, struct scatterlist *sg, int nents,
 		enum dma_data_direction dir, unsigned long attrs);
 void iommu_dma_unmap_sg(struct device *dev, struct scatterlist *sg, int nents,

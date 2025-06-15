@@ -15,6 +15,10 @@ TRACE_DEFINE_ENUM(DMA_TO_DEVICE);
 TRACE_DEFINE_ENUM(DMA_FROM_DEVICE);
 TRACE_DEFINE_ENUM(DMA_NONE);
 
+TRACE_DEFINE_ENUM(DMA_MAPPING_CPU_HOST);
+TRACE_DEFINE_ENUM(DMA_MAPPING_MMIO);
+TRACE_DEFINE_ENUM(DMA_MAPPING_BUS_ADDR);
+
 #define decode_dma_data_direction(dir) \
 	__print_symbolic(dir, \
 		{ DMA_BIDIRECTIONAL, "BIDIRECTIONAL" }, \
@@ -33,10 +37,17 @@ TRACE_DEFINE_ENUM(DMA_NONE);
 		{ DMA_ATTR_NO_WARN, "NO_WARN" }, \
 		{ DMA_ATTR_PRIVILEGED, "PRIVILEGED" })
 
+#define decode_dma_type(type) \
+	__print_symbolic(type, \
+		{ DMA_MAPPING_CPU_HOST, "CPU_HOST" }, \
+		{ DMA_MAPPING_MMIO, "MMIO" }, \
+		{ DMA_MAPPING_BUS_ADDR, "BUS_ADDR" })
+
 DECLARE_EVENT_CLASS(dma_map,
 	TP_PROTO(struct device *dev, phys_addr_t phys_addr, dma_addr_t dma_addr,
-		 size_t size, enum dma_data_direction dir, unsigned long attrs),
-	TP_ARGS(dev, phys_addr, dma_addr, size, dir, attrs),
+		 size_t size, enum dma_data_direction dir, enum dma_mapping_type type,
+		 unsigned long attrs),
+	TP_ARGS(dev, phys_addr, dma_addr, size, dir, type, attrs),
 
 	TP_STRUCT__entry(
 		__string(device, dev_name(dev))
@@ -44,6 +55,7 @@ DECLARE_EVENT_CLASS(dma_map,
 		__field(u64, dma_addr)
 		__field(size_t, size)
 		__field(enum dma_data_direction, dir)
+		__field(enum dma_mapping_type, type)
 		__field(unsigned long, attrs)
 	),
 
@@ -53,37 +65,41 @@ DECLARE_EVENT_CLASS(dma_map,
 		__entry->dma_addr = dma_addr;
 		__entry->size = size;
 		__entry->dir = dir;
+		__entry->type = type;
 		__entry->attrs = attrs;
 	),
 
-	TP_printk("%s dir=%s dma_addr=%llx size=%zu phys_addr=%llx attrs=%s",
+	TP_printk("%s dir=%s dma_addr=%llx size=%zu phys_addr=%llx type=%s attrs=%s",
 		__get_str(device),
 		decode_dma_data_direction(__entry->dir),
 		__entry->dma_addr,
 		__entry->size,
 		__entry->phys_addr,
+		decode_dma_type(__entry->type),
 		decode_dma_attrs(__entry->attrs))
 );
 
 #define DEFINE_MAP_EVENT(name) \
 DEFINE_EVENT(dma_map, name, \
 	TP_PROTO(struct device *dev, phys_addr_t phys_addr, dma_addr_t dma_addr, \
-		 size_t size, enum dma_data_direction dir, unsigned long attrs), \
-	TP_ARGS(dev, phys_addr, dma_addr, size, dir, attrs))
+		 size_t size, enum dma_data_direction dir, enum dma_mapping_type type, \
+		 unsigned long attrs), \
+	TP_ARGS(dev, phys_addr, dma_addr, size, dir, type, attrs))
 
 DEFINE_MAP_EVENT(dma_map_phys);
-DEFINE_MAP_EVENT(dma_map_resource);
 
 DECLARE_EVENT_CLASS(dma_unmap,
 	TP_PROTO(struct device *dev, dma_addr_t addr, size_t size,
-		 enum dma_data_direction dir, unsigned long attrs),
-	TP_ARGS(dev, addr, size, dir, attrs),
+		 enum dma_data_direction dir, enum dma_mapping_type type,
+		 unsigned long attrs),
+	TP_ARGS(dev, addr, size, dir, type, attrs),
 
 	TP_STRUCT__entry(
 		__string(device, dev_name(dev))
 		__field(u64, addr)
 		__field(size_t, size)
 		__field(enum dma_data_direction, dir)
+		__field(enum dma_mapping_type, type)
 		__field(unsigned long, attrs)
 	),
 
@@ -92,25 +108,27 @@ DECLARE_EVENT_CLASS(dma_unmap,
 		__entry->addr = addr;
 		__entry->size = size;
 		__entry->dir = dir;
+		__entry->type = type;
 		__entry->attrs = attrs;
 	),
 
-	TP_printk("%s dir=%s dma_addr=%llx size=%zu attrs=%s",
+	TP_printk("%s dir=%s dma_addr=%llx size=%zu type=%s attrs=%s",
 		__get_str(device),
 		decode_dma_data_direction(__entry->dir),
 		__entry->addr,
 		__entry->size,
+		decode_dma_type(__entry->type),
 		decode_dma_attrs(__entry->attrs))
 );
 
 #define DEFINE_UNMAP_EVENT(name) \
 DEFINE_EVENT(dma_unmap, name, \
 	TP_PROTO(struct device *dev, dma_addr_t addr, size_t size, \
-		 enum dma_data_direction dir, unsigned long attrs), \
-	TP_ARGS(dev, addr, size, dir, attrs))
+		 enum dma_data_direction dir, enum dma_mapping_type type, \
+		 unsigned long attrs), \
+	TP_ARGS(dev, addr, size, dir, type, attrs))
 
 DEFINE_UNMAP_EVENT(dma_unmap_phys);
-DEFINE_UNMAP_EVENT(dma_unmap_resource);
 
 DECLARE_EVENT_CLASS(dma_alloc_class,
 	TP_PROTO(struct device *dev, void *virt_addr, dma_addr_t dma_addr,
