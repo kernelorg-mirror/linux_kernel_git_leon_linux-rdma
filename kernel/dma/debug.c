@@ -1217,7 +1217,10 @@ void debug_dma_map_phys(struct device *dev, phys_addr_t phys, size_t size,
 		return;
 
 	entry->dev       = dev;
-	entry->type      = dma_debug_single;
+	if (attrs & DMA_ATTR_MMIO)
+		entry->type = dma_debug_resource;
+	else
+		entry->type = dma_debug_singe;
 	entry->paddr	 = phys;
 	entry->dev_addr  = dma_addr;
 	entry->size      = size;
@@ -1277,11 +1280,10 @@ void debug_dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
 }
 EXPORT_SYMBOL(debug_dma_mapping_error);
 
-void debug_dma_unmap_phys(struct device *dev, dma_addr_t dma_addr,
-			  size_t size, int direction)
+void debug_dma_unmap_phys(struct device *dev, dma_addr_t dma_addr, size_t size,
+			  int direction, unsigned long attrs)
 {
 	struct dma_debug_entry ref = {
-		.type           = dma_debug_single,
 		.dev            = dev,
 		.dev_addr       = dma_addr,
 		.size           = size,
@@ -1290,6 +1292,12 @@ void debug_dma_unmap_phys(struct device *dev, dma_addr_t dma_addr,
 
 	if (unlikely(dma_debug_disabled()))
 		return;
+
+	if (attrs & DMA_ATTR_MMIO)
+		ref->type = dma_debug_resource;
+	else
+		ref->type = dma_debug_single;
+
 	check_unmap(&ref);
 }
 
@@ -1443,30 +1451,6 @@ void debug_dma_free_coherent(struct device *dev, size_t size,
 		return;
 
 	check_unmap(&ref);
-}
-
-void debug_dma_map_resource(struct device *dev, phys_addr_t addr, size_t size,
-			    int direction, dma_addr_t dma_addr,
-			    unsigned long attrs)
-{
-	struct dma_debug_entry *entry;
-
-	if (unlikely(dma_debug_disabled()))
-		return;
-
-	entry = dma_entry_alloc();
-	if (!entry)
-		return;
-
-	entry->type		= dma_debug_resource;
-	entry->dev		= dev;
-	entry->paddr		= addr;
-	entry->size		= size;
-	entry->dev_addr		= dma_addr;
-	entry->direction	= direction;
-	entry->map_err_type	= MAP_ERR_NOT_CHECKED;
-
-	add_dma_entry(entry, attrs);
 }
 
 void debug_dma_unmap_resource(struct device *dev, dma_addr_t dma_addr,

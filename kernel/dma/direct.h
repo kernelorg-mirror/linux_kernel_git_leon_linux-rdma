@@ -84,13 +84,31 @@ static inline dma_addr_t dma_direct_map_phys(struct device *dev,
 		phys_addr_t phys, size_t size, enum dma_data_direction dir,
 		unsigned long attrs)
 {
-	dma_addr_t dma_addr = phys_to_dma(dev, phys);
+	dma_addr_t dma_addr;
+
+	if (attrs & DMA_ATTR_MMIO) {
+		dma_addr = phys;
+
+		if (unlikely(!dma_capable(dev, dma_addr, size, false))) {
+			dev_err_once(
+				dev,
+				"DMA addr %pad+%zu overflow (mask %llx, bus limit %llx).\n",
+				&dma_addr, size, *dev->dma_mask,
+				dev->bus_dma_limit);
+			WARN_ON_ONCE(1);
+			return DMA_MAPPING_ERROR;
+		}
+
+		return dma_addr;
+	}
 
 	if (is_swiotlb_force_bounce(dev)) {
 		if (pfn_valid(PFN_DOWN(phys)))
 			return DMA_MAPPING_ERROR;
 		return swiotlb_map(dev, phys, size, dir, attrs);
 	}
+
+	dma_addr = phys_to_dma(dev, phys);
 
 	if (unlikely(!dma_capable(dev, dma_addr, size, true)) ||
 	    dma_kmalloc_needs_bounce(dev, size, dir)) {
@@ -114,6 +132,10 @@ static inline void dma_direct_unmap_phys(struct device *dev, dma_addr_t addr,
 		size_t size, enum dma_data_direction dir, unsigned long attrs)
 {
 	phys_addr_t phys = dma_to_phys(dev, addr);
+
+	if (attrs & DMA_ATTR_MMIO)
+		/* nothing to do: uncached and no swiotlb */
+		return;
 
 	if (!(attrs & DMA_ATTR_SKIP_CPU_SYNC))
 		dma_direct_sync_single_for_cpu(dev, addr, size, dir);

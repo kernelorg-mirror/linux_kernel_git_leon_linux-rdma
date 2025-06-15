@@ -62,6 +62,7 @@ int dma_common_mmap(struct device *dev, struct vm_area_struct *vma,
 struct page *dma_common_alloc_pages(struct device *dev, size_t size,
 		dma_addr_t *dma_handle, enum dma_data_direction dir, gfp_t gfp)
 {
+	unsigned long attrs = DMA_ATTR_SKIP_CPU_SYNC | DMA_ATTR_CPU_HOST;
 	const struct dma_map_ops *ops = get_dma_ops(dev);
 	struct page *page;
 
@@ -73,10 +74,9 @@ struct page *dma_common_alloc_pages(struct device *dev, size_t size,
 
 	if (use_dma_iommu(dev))
 		*dma_handle = iommu_dma_map_phys(dev, page_to_phys(page), size,
-				dir, DMA_ATTR_SKIP_CPU_SYNC);
+				dir, attrs);
 	else
-		*dma_handle = ops->map_page(dev, page, 0, size, dir,
-					    DMA_ATTR_SKIP_CPU_SYNC);
+		*dma_handle = ops->map_page(dev, page, 0, size, dir, attrs);
 	if (*dma_handle == DMA_MAPPING_ERROR) {
 		dma_free_contiguous(dev, page, size);
 		return NULL;
@@ -89,13 +89,12 @@ struct page *dma_common_alloc_pages(struct device *dev, size_t size,
 void dma_common_free_pages(struct device *dev, size_t size, struct page *page,
 		dma_addr_t dma_handle, enum dma_data_direction dir)
 {
+	unsigned long attrs = DMA_ATTR_SKIP_CPU_SYNC | DMA_ATTR_CPU_HOST;
 	const struct dma_map_ops *ops = get_dma_ops(dev);
 
 	if (use_dma_iommu(dev))
-		iommu_dma_unmap_phys(dev, dma_handle, size, dir,
-				     DMA_ATTR_SKIP_CPU_SYNC);
+		iommu_dma_unmap_phys(dev, dma_handle, size, dir, attrs);
 	else if (ops->unmap_page)
-		ops->unmap_page(dev, dma_handle, size, dir,
-				DMA_ATTR_SKIP_CPU_SYNC);
+		ops->unmap_page(dev, dma_handle, size, dir, attrs);
 	dma_free_contiguous(dev, page, size);
 }
