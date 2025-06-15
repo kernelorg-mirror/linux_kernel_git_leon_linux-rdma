@@ -15,6 +15,7 @@
 #include <linux/of_device.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
+#include <linux/pci-p2pdma.h>
 #include "debug.h"
 #include "direct.h"
 
@@ -165,6 +166,13 @@ dma_addr_t dma_map_phys(struct device *dev, phys_addr_t phys, size_t size,
 	if (WARN_ON_ONCE(!dev->dma_mask))
 		return DMA_MAPPING_ERROR;
 
+	if (attrs & DMA_ATTR_BUS_ADDR) {
+		struct pci_p2pdma_map_state p2pdma_state = {};
+
+		pci_p2pdma_state(&p2pdma_state, dev, page);
+		return pci_p2pdma_bus_addr_map(&p2pdma_state, phys);
+	}
+
 	if (dma_map_direct(dev, ops) ||
 	    (attrs & DMA_ATTR_CPU_HOST &&
 	     arch_dma_map_phys_direct(dev, phys + size)))
@@ -197,6 +205,11 @@ void dma_unmap_phys(struct device *dev, dma_addr_t addr, size_t size,
 	const struct dma_map_ops *ops = get_dma_ops(dev);
 
 	BUG_ON(!valid_dma_direction(dir));
+
+	if (attrs & DMA_ATTR_BUS_ADDR)
+		/* Do nothing */
+		return;
+
 	if (dma_map_direct(dev, ops) ||
 	    (attrs & DMA_ATTR_CPU_HOST &&
 	     arch_dma_unmap_phys_direct(dev, addr + size)))
