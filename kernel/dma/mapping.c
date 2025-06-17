@@ -176,14 +176,19 @@ dma_addr_t dma_map_phys(struct device *dev, phys_addr_t phys, size_t size,
 		if (IS_ENABLED(CONFIG_DMA_API_DEBUG))
 			is_pfn_valid = pfn_valid(PHYS_PFN(phys));
 
-		if (unlikely(!is_pfn_valid))
-			return DMA_MAPPING_ERROR;
-
-		/*
-		 * All platforms which implement .map_page() don't support
-		 * non-struct page backed addresses.
-		 */
-		addr = ops->map_page(dev, page, offset, size, dir, attrs);
+		if (attrs & DMA_ATTR_MMIO) {
+			if (is_pfn_valid || !ops->map_resource)
+				return DMA_MAPPING_ERROR;
+			addr = ops->map_resource(dev, phys, size, dir, attrs);
+		} else {
+			if (unlikely(!is_pfn_valid))
+				return DMA_MAPPING_ERROR;
+			/*
+			 * All platforms which implement .map_page() don't support
+			 * non-struct page backed addresses.
+			 */
+			addr = ops->map_page(dev, page, offset, size, dir, attrs);
+		}
 	}
 
 	kmsan_handle_dma(phys, size, dir);
@@ -214,8 +219,11 @@ void dma_unmap_phys(struct device *dev, dma_addr_t addr, size_t size,
 		dma_direct_unmap_phys(dev, addr, size, dir, attrs);
 	else if (use_dma_iommu(dev))
 		iommu_dma_unmap_phys(dev, addr, size, dir, attrs);
-	else
+	else if (!(attrs & DMA_ATTR_MMIO))
 		ops->unmap_page(dev, addr, size, dir, attrs);
+	else if (ops->unmap_resource)
+		ops->unmap_resource(dev, addr, size, dir, attrs);
+
 	trace_dma_unmap_phys(dev, addr, size, dir, attrs);
 	debug_dma_unmap_phys(dev, addr, size, dir);
 }
