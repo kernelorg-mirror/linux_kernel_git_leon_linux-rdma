@@ -130,3 +130,14 @@ accesses to DMA buffers in both privileged "supervisor" and unprivileged
 subsystem that the buffer is fully accessible at the elevated privilege
 level (and ideally inaccessible or at least read-only at the
 lesser-privileged levels).
+
+DMA_ATTR_MMIO
+-------------
+
+When you need to allow a device to DMA to or from a region of memory that is
+actually a hardware register space or device buffer (i.e., not regular RAM),
+such as a memory-mapped I/O region defined by platform_get_resource() for
+a platform device.
+
+The physical address passed with DMA_ATTR_MMIO must not have struct pages
+associated with it (i.e., it cannot be a region of kernel or user memory)

@@ -59,6 +59,14 @@
 #define DMA_ATTR_PRIVILEGED		(1UL << 9)
 
 /*
+ * DMA_ATTR_MMIO: used to indicate that the buffer is intended for mapping
+ * device MMIO (Memory-Mapped I/O) resources for DMA operations. It should
+ * never be used to map regular kernel RAM or memory with struct pages
+ * associated,
+ */
+#define DMA_ATTR_MMIO		(1UL << 10)
+
+/*
  * A dma_addr_t can hold any valid DMA or bus address for the platform.  It can
  * be given to a device to use as a DMA source or target.  It is specific to a
  * given device and there may be a translation between the CPU physical address
