@@ -1190,8 +1190,8 @@ static inline size_t iova_unaligned(struct iova_domain *iovad, phys_addr_t phys,
 	return iova_offset(iovad, phys | size);
 }
 
-dma_addr_t iommu_dma_map_phys(struct device *dev, phys_addr_t phys, size_t size,
-		enum dma_data_direction dir, unsigned long attrs)
+static dma_addr_t __iommu_dma_map_phys(struct device *dev, phys_addr_t phys,
+		size_t size, enum dma_data_direction dir, unsigned long attrs)
 {
 	bool coherent = dev_is_dma_coherent(dev);
 	int prot = dma_info_to_prot(dir, coherent, attrs);
@@ -1218,6 +1218,17 @@ dma_addr_t iommu_dma_map_phys(struct device *dev, phys_addr_t phys, size_t size,
 	if (iova == DMA_MAPPING_ERROR)
 		swiotlb_tbl_unmap_single(dev, phys, size, dir, attrs);
 	return iova;
+}
+
+dma_addr_t iommu_dma_map_phys(struct device *dev, phys_addr_t phys, size_t size,
+		enum dma_data_direction dir, unsigned long attrs)
+{
+	if (attrs & DMA_ATTR_MMIO)
+		return __iommu_dma_map(dev, phys, size,
+			       dma_info_to_prot(dir, false, attrs) | IOMMU_MMIO,
+			       dma_get_mask(dev));
+
+	return __iommu_dma_map_phys(dev, phys, size, dir, attrs);
 }
 
 void iommu_dma_unmap_phys(struct device *dev, dma_addr_t dma_handle,
@@ -1352,7 +1363,7 @@ static int iommu_dma_map_sg_swiotlb(struct device *dev, struct scatterlist *sg,
 	sg_dma_mark_swiotlb(sg);
 
 	for_each_sg(sg, s, nents, i) {
-		sg_dma_address(s) = iommu_dma_map_phys(dev, sg_phys(s),
+		sg_dma_address(s) = __iommu_dma_map_phys(dev, sg_phys(s),
 				s->length, dir, attrs);
 		if (sg_dma_address(s) == DMA_MAPPING_ERROR)
 			goto out_unmap;
