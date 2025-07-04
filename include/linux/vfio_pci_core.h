@@ -96,6 +96,7 @@ struct vfio_pci_core_device {
 	struct rw_semaphore	memory_lock;
 #ifdef CONFIG_VFIO_PCI_DMABUF
 	struct p2pdma_provider  *provider;
+	struct list_head	dmabufs;
 #endif
 };
 
