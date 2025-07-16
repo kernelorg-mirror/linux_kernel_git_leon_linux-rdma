@@ -23,10 +23,11 @@ struct scatterlist;
  */
 struct p2pdma_provider {
 	struct device *owner;
-	u64 bus_offset;
+	u64 bus_offset[DEVICE_COUNT_RESOURCE];
 };
 
 #ifdef CONFIG_PCI_P2PDMA
+struct p2pdma_provider *pci_p2pdma_enable(struct pci_dev *pdev);
 int pci_p2pdma_add_resource(struct pci_dev *pdev, int bar, size_t size,
 		u64 offset);
 int pci_p2pdma_distance_many(struct pci_dev *provider, struct device **clients,
@@ -45,6 +46,10 @@ int pci_p2pdma_enable_store(const char *page, struct pci_dev **p2p_dev,
 ssize_t pci_p2pdma_enable_show(char *page, struct pci_dev *p2p_dev,
 			       bool use_p2pdma);
 #else /* CONFIG_PCI_P2PDMA */
+static inline struct p2pdma_provider *pci_p2pdma_enable(struct pci_dev *pdev)
+{
+	return ERR_PTR(-EOPNOTSUPP);
+}
 static inline int pci_p2pdma_add_resource(struct pci_dev *pdev, int bar,
 		size_t size, u64 offset)
 {
@@ -156,6 +161,7 @@ enum pci_p2pdma_map_type {
 struct pci_p2pdma_map_state {
 	struct p2pdma_provider *mem;
 	enum pci_p2pdma_map_type map;
+	int bar;
 };
 
 
@@ -188,13 +194,15 @@ pci_p2pdma_state(struct pci_p2pdma_map_state *state, struct device *dev,
  *			     for a PCI_P2PDMA_MAP_BUS_ADDR transfer.
  * @provider:	P2P provider structure
  * @paddr:	physical address to map
+ * @bar:	BAR index to which physical address belongs
  *
  * Map a physically contiguous PCI_P2PDMA_MAP_BUS_ADDR transfer.
  */
 static inline dma_addr_t
-pci_p2pdma_bus_addr_map(struct p2pdma_provider *provider, phys_addr_t paddr)
+pci_p2pdma_bus_addr_map(struct p2pdma_provider *provider, phys_addr_t paddr,
+			int bar)
 {
-	return paddr + provider->bus_offset;
+	return paddr + provider->bus_offset[bar];
 }
 
 #endif /* _LINUX_PCI_P2P_H */
