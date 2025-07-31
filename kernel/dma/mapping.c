@@ -160,6 +160,9 @@ dma_addr_t dma_map_phys(struct device *dev, phys_addr_t phys, size_t size,
 
 	BUG_ON(!valid_dma_direction(dir));
 
+	if (attrs & DMA_ATTR_MMIO)
+		return dma_map_resource(dev, phys, size, dir, attrs);
+
 	if (WARN_ON_ONCE(!dev->dma_mask))
 		return DMA_MAPPING_ERROR;
 
@@ -216,6 +219,12 @@ void dma_unmap_phys(struct device *dev, dma_addr_t addr, size_t size,
 	const struct dma_map_ops *ops = get_dma_ops(dev);
 
 	BUG_ON(!valid_dma_direction(dir));
+
+	if (attrs & DMA_ATTR_MMIO) {
+		dma_unmap_resource(dev, addr, size, dir, attrs);
+		return;
+	}
+
 	if (dma_map_direct(dev, ops) ||
 	    arch_dma_unmap_phys_direct(dev, addr + size))
 		dma_direct_unmap_phys(dev, addr, size, dir, attrs);
