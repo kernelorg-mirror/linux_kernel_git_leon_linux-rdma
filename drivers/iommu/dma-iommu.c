@@ -1383,7 +1383,6 @@ int iommu_dma_map_sg(struct device *dev, struct scatterlist *sg, int nents,
 	struct iova_domain *iovad = &cookie->iovad;
 	struct scatterlist *s, *prev = NULL;
 	int prot = dma_info_to_prot(dir, dev_is_dma_coherent(dev), attrs);
-	struct pci_p2pdma_map_state p2pdma_state = {};
 	dma_addr_t iova;
 	size_t iova_len = 0;
 	unsigned long mask = dma_get_seg_boundary(dev);
@@ -1413,28 +1412,12 @@ int iommu_dma_map_sg(struct device *dev, struct scatterlist *sg, int nents,
 		size_t s_length = s->length;
 		size_t pad_len = (mask - iova_len + 1) & mask;
 
-		switch (pci_p2pdma_state(&p2pdma_state, dev, sg_page(s))) {
-		case PCI_P2PDMA_MAP_THRU_HOST_BRIDGE:
+		if (IS_ENABLED(CONFIG_PCI_P2PDMA) &&
+		    is_pci_p2pdma_page(sg_page(s))) {
 			/*
-			 * Mapping through host bridge should be mapped with
-			 * regular IOVAs, thus we do nothing here and continue
-			 * below.
+			 * Mapping of p2p pages is peformed through
+			 * dma_iova_link() interface and not SG lists.
 			 */
-			break;
-		case PCI_P2PDMA_MAP_NONE:
-			break;
-		case PCI_P2PDMA_MAP_BUS_ADDR:
-			/*
-			 * iommu_map_sg() will skip this segment as it is marked
-			 * as a bus address, __finalise_sg() will copy the dma
-			 * address into the output segment.
-			 */
-			s->dma_address = pci_p2pdma_bus_addr_map(&p2pdma_state,
-						sg_phys(s));
-			sg_dma_len(s) = sg->length;
-			sg_dma_mark_bus_address(s);
-			continue;
-		default:
 			ret = -EREMOTEIO;
 			goto out_restore_sg;
 		}

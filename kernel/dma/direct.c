@@ -462,34 +462,24 @@ void dma_direct_unmap_sg(struct device *dev, struct scatterlist *sgl,
 int dma_direct_map_sg(struct device *dev, struct scatterlist *sgl, int nents,
 		enum dma_data_direction dir, unsigned long attrs)
 {
-	struct pci_p2pdma_map_state p2pdma_state = {};
 	struct scatterlist *sg;
 	int i, ret;
 
 	for_each_sg(sgl, sg, nents, i) {
-		switch (pci_p2pdma_state(&p2pdma_state, dev, sg_page(sg))) {
-		case PCI_P2PDMA_MAP_THRU_HOST_BRIDGE:
+		if (IS_ENABLED(CONFIG_PCI_P2PDMA) &&
+		    is_pci_p2pdma_page(sg_page(sg))) {
 			/*
-			 * Any P2P mapping that traverses the PCI host bridge
-			 * must be mapped with CPU physical address and not PCI
-			 * bus addresses.
+			 * Mapping of p2p pages is peformed through
+			 * dma_iova_link() interface and not SG lists.
 			 */
-			break;
-		case PCI_P2PDMA_MAP_NONE:
-			sg->dma_address = dma_direct_map_page(dev, sg_page(sg),
-					sg->offset, sg->length, dir, attrs);
-			if (sg->dma_address == DMA_MAPPING_ERROR) {
-				ret = -EIO;
-				goto out_unmap;
-			}
-			break;
-		case PCI_P2PDMA_MAP_BUS_ADDR:
-			sg->dma_address = pci_p2pdma_bus_addr_map(&p2pdma_state,
-					sg_phys(sg));
-			sg_dma_mark_bus_address(sg);
-			continue;
-		default:
 			ret = -EREMOTEIO;
+			goto out_unmap;
+		}
+
+		sg->dma_address = dma_direct_map_page(
+			dev, sg_page(sg), sg->offset, sg->length, dir, attrs);
+		if (sg->dma_address == DMA_MAPPING_ERROR) {
+			ret = -EIO;
 			goto out_unmap;
 		}
 		sg_dma_len(sg) = sg->length;
