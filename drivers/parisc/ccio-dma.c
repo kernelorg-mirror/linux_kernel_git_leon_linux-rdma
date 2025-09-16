@@ -773,17 +773,18 @@ ccio_map_single(struct device *dev, void *addr, size_t size,
 
 
 static dma_addr_t
-ccio_map_page(struct device *dev, struct page *page, unsigned long offset,
-		size_t size, enum dma_data_direction direction,
-		unsigned long attrs)
+ccio_map_phys(struct device *dev, phys_addr_t phys, size_t size,
+	      enum dma_data_direction direction, unsigned long attrs)
 {
-	return ccio_map_single(dev, page_address(page) + offset, size,
-			direction);
+	if (attrs & DMA_ATTR_MMIO)
+		return DMA_MAPPING_ERROR;
+
+	return ccio_map_single(dev, phys_to_virt(phys), size, direction);
 }
 
 
 /**
- * ccio_unmap_page - Unmap an address range from the IOMMU.
+ * ccio_unmap_phys - Unmap an address range from the IOMMU.
  * @dev: The PCI device.
  * @iova: The start address of the DMA region.
  * @size: The length of the DMA region.
@@ -791,7 +792,7 @@ ccio_map_page(struct device *dev, struct page *page, unsigned long offset,
  * @attrs: attributes
  */
 static void 
-ccio_unmap_page(struct device *dev, dma_addr_t iova, size_t size,
+ccio_unmap_phys(struct device *dev, dma_addr_t iova, size_t size,
 		enum dma_data_direction direction, unsigned long attrs)
 {
 	struct ioc *ioc;
@@ -873,7 +874,7 @@ static void
 ccio_free(struct device *dev, size_t size, void *cpu_addr,
 		dma_addr_t dma_handle, unsigned long attrs)
 {
-	ccio_unmap_page(dev, dma_handle, size, 0, 0);
+	ccio_unmap_phys(dev, dma_handle, size, 0, 0);
 	free_pages((unsigned long)cpu_addr, get_order(size));
 }
 
@@ -1004,7 +1005,7 @@ ccio_unmap_sg(struct device *dev, struct scatterlist *sglist, int nents,
 #ifdef CCIO_COLLECT_STATS
 		ioc->usg_pages += sg_dma_len(sglist) >> PAGE_SHIFT;
 #endif
-		ccio_unmap_page(dev, sg_dma_address(sglist),
+		ccio_unmap_phys(dev, sg_dma_address(sglist),
 				  sg_dma_len(sglist), direction, 0);
 		++sglist;
 		nents--;
@@ -1017,8 +1018,8 @@ static const struct dma_map_ops ccio_ops = {
 	.dma_supported =	ccio_dma_supported,
 	.alloc =		ccio_alloc,
 	.free =			ccio_free,
-	.map_page =		ccio_map_page,
-	.unmap_page =		ccio_unmap_page,
+	.map_phys =		ccio_map_phys,
+	.unmap_phys =		ccio_unmap_phys,
 	.map_sg =		ccio_map_sg,
 	.unmap_sg =		ccio_unmap_sg,
 	.get_sgtable =		dma_common_get_sgtable,
@@ -1072,7 +1073,7 @@ static int ccio_proc_info(struct seq_file *m, void *p)
 			   ioc->msingle_calls, ioc->msingle_pages,
 			   (int)((ioc->msingle_pages * 1000)/ioc->msingle_calls));
 
-		/* KLUGE - unmap_sg calls unmap_page for each mapped page */
+		/* KLUGE - unmap_sg calls unmap_phys for each mapped page */
 		min = ioc->usingle_calls - ioc->usg_calls;
 		max = ioc->usingle_pages - ioc->usg_pages;
 		seq_printf(m, "pci_unmap_single: %8ld calls  %8ld pages (avg %d/1000)\n",
