@@ -778,17 +778,18 @@ sba_map_single(struct device *dev, void *addr, size_t size,
 
 
 static dma_addr_t
-sba_map_page(struct device *dev, struct page *page, unsigned long offset,
-		size_t size, enum dma_data_direction direction,
-		unsigned long attrs)
+sba_map_phys(struct device *dev, phys_addr_t phys, size_t size,
+		enum dma_data_direction direction, unsigned long attrs)
 {
-	return sba_map_single(dev, page_address(page) + offset, size,
-			direction);
+	if (attrs & DMA_ATTR_MMIO)
+		return DMA_MAPPING_ERROR;
+
+	return sba_map_single(dev, phys_to_virt(phys), size, direction);
 }
 
 
 /**
- * sba_unmap_page - unmap one IOVA and free resources
+ * sba_unmap_phys - unmap one IOVA and free resources
  * @dev: instance of PCI owned by the driver that's asking.
  * @iova:  IOVA of driver buffer previously mapped.
  * @size:  number of bytes mapped in driver buffer.
@@ -798,7 +799,7 @@ sba_map_page(struct device *dev, struct page *page, unsigned long offset,
  * See Documentation/core-api/dma-api-howto.rst
  */
 static void
-sba_unmap_page(struct device *dev, dma_addr_t iova, size_t size,
+sba_unmap_phys(struct device *dev, dma_addr_t iova, size_t size,
 		enum dma_data_direction direction, unsigned long attrs)
 {
 	struct ioc *ioc;
@@ -914,7 +915,7 @@ static void
 sba_free(struct device *hwdev, size_t size, void *vaddr,
 		    dma_addr_t dma_handle, unsigned long attrs)
 {
-	sba_unmap_page(hwdev, dma_handle, size, 0, 0);
+	sba_unmap_phys(hwdev, dma_handle, size, 0, 0);
 	free_pages((unsigned long) vaddr, get_order(size));
 }
 
@@ -1061,7 +1062,7 @@ sba_unmap_sg(struct device *dev, struct scatterlist *sglist, int nents,
 
 	while (nents && sg_dma_len(sglist)) {
 
-		sba_unmap_page(dev, sg_dma_address(sglist), sg_dma_len(sglist),
+		sba_unmap_phys(dev, sg_dma_address(sglist), sg_dma_len(sglist),
 				direction, 0);
 #ifdef SBA_COLLECT_STATS
 		ioc->usg_pages += ((sg_dma_address(sglist) & ~IOVP_MASK) + sg_dma_len(sglist) + IOVP_SIZE - 1) >> PAGE_SHIFT;
@@ -1085,8 +1086,8 @@ static const struct dma_map_ops sba_ops = {
 	.dma_supported =	sba_dma_supported,
 	.alloc =		sba_alloc,
 	.free =			sba_free,
-	.map_page =		sba_map_page,
-	.unmap_page =		sba_unmap_page,
+	.map_phys =		sba_map_phys,
+	.unmap_phys =		sba_unmap_phys,
 	.map_sg =		sba_map_sg,
 	.unmap_sg =		sba_unmap_sg,
 	.get_sgtable =		dma_common_get_sgtable,
