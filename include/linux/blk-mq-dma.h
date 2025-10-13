@@ -50,19 +50,21 @@ static inline bool blk_rq_dma_map_coalesce(struct dma_iova_state *state)
  * @state:	DMA IOVA state
  * @mapped_len: number of bytes to unmap
  * @is_p2p:	true if mapped with PCI_P2PDMA_MAP_BUS_ADDR
+ * @attrs:	DMA attributes
  *
  * Returns %false if the callers need to manually unmap every DMA segment
  * mapped using @iter or %true if no work is left to be done.
  */
 static inline bool blk_dma_unmap(struct request *req, struct device *dma_dev,
-		struct dma_iova_state *state, size_t mapped_len, bool is_p2p)
+		struct dma_iova_state *state, size_t mapped_len, bool is_p2p,
+		unsigned int attrs)
 {
 	if (is_p2p)
 		return true;
 
 	if (dma_use_iova(state)) {
 		dma_iova_destroy(dma_dev, state, mapped_len, rq_dma_dir(req),
-				 0);
+				 attrs);
 		return true;
 	}
 
@@ -70,10 +72,11 @@ static inline bool blk_dma_unmap(struct request *req, struct device *dma_dev,
 }
 
 static inline bool blk_rq_dma_unmap(struct request *req, struct device *dma_dev,
-		struct dma_iova_state *state, size_t mapped_len)
+		struct dma_iova_state *state, size_t mapped_len,
+		unsigned int attrs)
 {
 	return blk_dma_unmap(req, dma_dev, state, mapped_len,
-				req->cmd_flags & REQ_P2PDMA);
+			     req->cmd_flags & REQ_P2PDMA, attrs);
 }
 
 #endif /* BLK_MQ_DMA_H */
