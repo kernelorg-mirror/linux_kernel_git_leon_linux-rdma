@@ -8,7 +8,7 @@
 
 struct phys_vec {
 	phys_addr_t	paddr;
-	u32		len;
+	size_t		len;
 };
 
 static bool __blk_map_iter_next(struct blk_map_iter *iter)
@@ -108,7 +108,7 @@ static bool blk_rq_dma_map_iova(struct request *req, struct device *dma_dev,
 		struct phys_vec *vec)
 {
 	enum dma_data_direction dir = rq_dma_dir(req);
-	unsigned int mapped = 0;
+	size_t mapped = 0;
 	int error;
 
 	iter->addr = state->addr;
@@ -291,8 +291,10 @@ int __blk_rq_map_sg(struct request *rq, struct scatterlist *sglist,
 	blk_rq_map_iter_init(rq, &iter);
 	while (blk_map_iter_next(rq, &iter, &vec)) {
 		*last_sg = blk_next_sg(last_sg, sglist);
-		sg_set_page(*last_sg, phys_to_page(vec.paddr), vec.len,
-				offset_in_page(vec.paddr));
+
+		WARN_ON_ONCE(overflows_type(vec.len, unsigned int));
+		sg_set_page(*last_sg, phys_to_page(vec.paddr),
+			    (unsigned int)vec.len, offset_in_page(vec.paddr));
 		nsegs++;
 	}
 
@@ -411,7 +413,9 @@ int blk_rq_map_integrity_sg(struct request *rq, struct scatterlist *sglist)
 
 	while (blk_map_iter_next(rq, &iter, &vec)) {
 		sg = blk_next_sg(&sg, sglist);
-		sg_set_page(sg, phys_to_page(vec.paddr), vec.len,
+
+		WARN_ON_ONCE(overflows_type(vec.len, unsigned int));
+		sg_set_page(sg, phys_to_page(vec.paddr), (unsigned int)vec.len,
 				offset_in_page(vec.paddr));
 		segments++;
 	}
