@@ -313,6 +313,10 @@ struct p2pdma_provider *pcim_p2pdma_provider(struct pci_dev *pdev, int bar)
 		return NULL;
 
 	p2p = rcu_dereference_protected(pdev->p2pdma, 1);
+	if (WARN_ON(!p2p))
+		/* Someone forgot to call to pcim_p2pdma_init() before */
+		return NULL;
+
 	return &p2p->mem[bar];
 }
 EXPORT_SYMBOL_GPL(pcim_p2pdma_provider);
