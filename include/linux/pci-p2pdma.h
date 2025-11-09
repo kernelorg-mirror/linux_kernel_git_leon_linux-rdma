@@ -94,7 +94,7 @@ static inline int pcim_p2pdma_init(struct pci_dev *pdev)
 static inline struct p2pdma_provider *pcim_p2pdma_provider(struct pci_dev *pdev,
 							   int bar)
 {
-	return ERR_PTR(-EOPNOTSUPP);
+	return NULL;
 }
 static inline int pci_p2pdma_add_resource(struct pci_dev *pdev, int bar,
 		size_t size, u64 offset)
