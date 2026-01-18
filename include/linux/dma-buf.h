@@ -602,6 +602,7 @@ void dma_buf_unmap_attachment(struct dma_buf_attachment *, struct sg_table *,
 				enum dma_data_direction);
 void dma_buf_move_notify(struct dma_buf *dma_buf);
 void dma_buf_unsupported_invalidate_mappings(struct dma_buf_attachment *attach);
+bool dma_buf_attach_revocable(struct dma_buf_attachment *attach);
 
 int dma_buf_begin_cpu_access(struct dma_buf *dma_buf,
 			     enum dma_data_direction dir);
