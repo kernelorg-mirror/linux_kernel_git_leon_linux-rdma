@@ -579,6 +579,25 @@ static inline bool dma_buf_is_dynamic(struct dma_buf *dmabuf)
 	return !!dmabuf->ops->pin;
 }
 
+/**
+ * dma_buf_attachment_is_revoke - check if a DMA-buf importer implements
+ * revoke semantics.
+ * @attach: the DMA-buf attachment to check
+ *
+ * Returns true if DMA-buf importer honors revoke semantics, which is
+ * negotiated with the exporter, by making sure that importer implements
+ * .invalidate_mappings() callback and calls to dma_buf_pin() after
+ * DMA-buf attach.
+ */
+static inline bool
+dma_buf_attachment_is_revoke(struct dma_buf_attachment *attach)
+{
+	return IS_ENABLED(CONFIG_DMABUF_MOVE_NOTIFY) &&
+	       dma_buf_is_dynamic(attach->dmabuf) &&
+	       (attach->importer_ops &&
+		attach->importer_ops->invalidate_mappings);
+}
+
 struct dma_buf_attachment *dma_buf_attach(struct dma_buf *dmabuf,
 					  struct device *dev);
 struct dma_buf_attachment *
