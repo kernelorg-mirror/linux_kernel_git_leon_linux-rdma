@@ -837,18 +837,10 @@ static void mangle_sg_table(struct sg_table *sg_table)
 
 }
 
-static inline bool
-dma_buf_attachment_is_dynamic(struct dma_buf_attachment *attach)
-{
-	return !!attach->importer_ops;
-}
-
 static bool
 dma_buf_pin_on_map(struct dma_buf_attachment *attach)
 {
-	return attach->dmabuf->ops->pin &&
-		(!dma_buf_attachment_is_dynamic(attach) ||
-		 !IS_ENABLED(CONFIG_DMABUF_MOVE_NOTIFY));
+	return attach->dmabuf->ops->pin && !attach->importer_ops;
 }
 
 /**
@@ -1124,7 +1116,7 @@ struct sg_table *dma_buf_map_attachment(struct dma_buf_attachment *attach,
 	/*
 	 * Importers with static attachments don't wait for fences.
 	 */
-	if (!dma_buf_attachment_is_dynamic(attach)) {
+	if (!attach->importer_ops) {
 		ret = dma_resv_wait_timeout(attach->dmabuf->resv,
 					    DMA_RESV_USAGE_KERNEL, true,
 					    MAX_SCHEDULE_TIMEOUT);
