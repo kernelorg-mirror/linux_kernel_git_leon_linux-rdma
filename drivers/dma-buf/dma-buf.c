@@ -1238,6 +1238,20 @@ void dma_buf_unmap_attachment_unlocked(struct dma_buf_attachment *attach,
 }
 EXPORT_SYMBOL_NS_GPL(dma_buf_unmap_attachment_unlocked, "DMA_BUF");
 
+/*
+ * This function shouldn't be used by anyone except RDMA non-ODP case.
+ * The reason to it is UAPI mistake where dma-buf was exported to the
+ * userspace without knowing that .invalidate_mappings() can be called
+ * for pinned memory too.
+ *
+ * This warning shouldn't be seen in real production scenario.
+ */
+void dma_buf_unsupported_invalidate_mappings(struct dma_buf_attachment *attach)
+{
+	pr_warn("Invalidate callback should not be called when memory is pinned\n");
+}
+EXPORT_SYMBOL_FOR_MODULES(dma_buf_unsupported_invalidate_mappings, "ib_uverbs");
+
 /**
  * dma_buf_move_notify - notify attachments that DMA-buf is moving
  *
