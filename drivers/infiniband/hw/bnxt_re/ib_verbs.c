@@ -3309,20 +3309,6 @@ fail:
 	return rc;
 }
 
-static void bnxt_re_resize_cq_complete(struct bnxt_re_cq *cq)
-{
-	struct bnxt_re_dev *rdev = cq->rdev;
-
-	bnxt_qplib_resize_cq_complete(&rdev->qplib_res, &cq->qplib_cq);
-
-	cq->qplib_cq.max_wqe = cq->resize_cqe;
-	if (cq->resize_umem) {
-		ib_umem_release(cq->ib_cq.umem);
-		cq->ib_cq.umem = cq->resize_umem;
-		cq->resize_umem = NULL;
-		cq->resize_cqe = 0;
-	}
-}
 
 int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 		      struct ib_udata *udata)
@@ -3387,7 +3373,15 @@ int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 		goto fail;
 	}
 
-	cq->ib_cq.cqe = cq->resize_cqe;
+	bnxt_qplib_resize_cq_complete(&rdev->qplib_res, &cq->qplib_cq);
+
+	cq->qplib_cq.max_wqe = cq->resize_cqe;
+	ib_umem_release(cq->ib_cq.umem);
+	cq->ib_cq.umem = cq->resize_umem;
+	cq->resize_umem = NULL;
+	cq->resize_cqe = 0;
+
+	cq->ib_cq.cqe = entries;
 	atomic_inc(&rdev->stats.res.resize_count);
 
 	return 0;
@@ -3906,15 +3900,6 @@ int bnxt_re_poll_cq(struct ib_cq *ib_cq, int num_entries, struct ib_wc *wc)
 	u32 tbl_idx;
 	struct bnxt_re_sqp_entries *sqp_entry = NULL;
 	unsigned long flags;
-
-	/* User CQ; the only processing we do is to
-	 * complete any pending CQ resize operation.
-	 */
-	if (cq->ib_cq.umem) {
-		if (cq->resize_umem)
-			bnxt_re_resize_cq_complete(cq);
-		return 0;
-	}
 
 	spin_lock_irqsave(&cq->cq_lock, flags);
 	budget = min_t(u32, num_entries, cq->max_cql);
