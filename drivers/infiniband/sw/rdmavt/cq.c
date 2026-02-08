@@ -408,51 +408,36 @@ int rvt_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
 	struct rvt_dev_info *rdi = cq->rdi;
 	struct rvt_cq_wc *u_wc = NULL;
 	struct rvt_cq_wc *old_u_wc = NULL;
-	struct rvt_k_cq_wc *k_wc = NULL;
-	struct rvt_k_cq_wc *old_k_wc = NULL;
+	__u64 offset = 0;
 
 	if (cqe < 1 || cqe > rdi->dparms.props.max_cqe)
+		return -EINVAL;
+
+	if (udata->outlen < sizeof(__u64))
 		return -EINVAL;
 
 	/*
 	 * Need to use vmalloc() if we want to support large #s of entries.
 	 */
-	if (udata && udata->outlen >= sizeof(__u64)) {
-		sz = sizeof(struct ib_uverbs_wc) * (cqe + 1);
-		sz += sizeof(*u_wc);
-		u_wc = vmalloc_user(sz);
-		if (!u_wc)
-			return -ENOMEM;
-	} else {
-		sz = sizeof(struct ib_wc) * (cqe + 1);
-		sz += sizeof(*k_wc);
-		k_wc = vzalloc_node(sz, rdi->dparms.node);
-		if (!k_wc)
-			return -ENOMEM;
-	}
-	/* Check that we can write the offset to mmap. */
-	if (udata && udata->outlen >= sizeof(__u64)) {
-		__u64 offset = 0;
+	sz = sizeof(struct ib_uverbs_wc) * (cqe + 1);
+	sz += sizeof(*u_wc);
+	u_wc = vmalloc_user(sz);
+	if (!u_wc)
+		return -ENOMEM;
 
-		ret = ib_copy_to_udata(udata, &offset, sizeof(offset));
-		if (ret)
-			goto bail_free;
-	}
+	/* Check that we can write the offset to mmap. */
+	ret = ib_copy_to_udata(udata, &offset, sizeof(offset));
+	if (ret)
+		goto bail_free;
 
 	spin_lock_irq(&cq->lock);
 	/*
 	 * Make sure head and tail are sane since they
 	 * might be user writable.
 	 */
-	if (u_wc) {
-		old_u_wc = cq->queue;
-		head = RDMA_READ_UAPI_ATOMIC(old_u_wc->head);
-		tail = RDMA_READ_UAPI_ATOMIC(old_u_wc->tail);
-	} else {
-		old_k_wc = cq->kqueue;
-		head = old_k_wc->head;
-		tail = old_k_wc->tail;
-	}
+	old_u_wc = cq->queue;
+	head = RDMA_READ_UAPI_ATOMIC(old_u_wc->head);
+	tail = RDMA_READ_UAPI_ATOMIC(old_u_wc->tail);
 
 	if (head > (u32)cq->ibcq.cqe)
 		head = (u32)cq->ibcq.cqe;
@@ -467,31 +452,19 @@ int rvt_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
 		goto bail_unlock;
 	}
 	for (n = 0; tail != head; n++) {
-		if (u_wc)
-			u_wc->uqueue[n] = old_u_wc->uqueue[tail];
-		else
-			k_wc->kqueue[n] = old_k_wc->kqueue[tail];
+		u_wc->uqueue[n] = old_u_wc->uqueue[tail];
 		if (tail == (u32)cq->ibcq.cqe)
 			tail = 0;
 		else
 			tail++;
 	}
 	cq->ibcq.cqe = cqe;
-	if (u_wc) {
-		RDMA_WRITE_UAPI_ATOMIC(u_wc->head, n);
-		RDMA_WRITE_UAPI_ATOMIC(u_wc->tail, 0);
-		cq->queue = u_wc;
-	} else {
-		k_wc->head = n;
-		k_wc->tail = 0;
-		cq->kqueue = k_wc;
-	}
+	RDMA_WRITE_UAPI_ATOMIC(u_wc->head, n);
+	RDMA_WRITE_UAPI_ATOMIC(u_wc->tail, 0);
+	cq->queue = u_wc;
 	spin_unlock_irq(&cq->lock);
 
-	if (u_wc)
-		vfree(old_u_wc);
-	else
-		vfree(old_k_wc);
+	vfree(old_u_wc);
 
 	if (cq->ip) {
 		struct rvt_mmap_info *ip = cq->ip;
@@ -521,7 +494,6 @@ bail_unlock:
 	spin_unlock_irq(&cq->lock);
 bail_free:
 	vfree(u_wc);
-	vfree(k_wc);
 
 	return ret;
 }
