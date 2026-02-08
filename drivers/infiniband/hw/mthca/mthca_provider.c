@@ -626,8 +626,6 @@ static int mthca_create_user_cq(struct ib_cq *ibcq,
 		goto err_unmap_arm;
 	}
 
-	cq->resize_buf = NULL;
-
 	return 0;
 
 err_unmap_arm:
@@ -666,53 +664,6 @@ static int mthca_create_cq(struct ib_cq *ibcq,
 	if (err)
 		return err;
 
-	cq->resize_buf = NULL;
-
-	return 0;
-}
-
-static int mthca_alloc_resize_buf(struct mthca_dev *dev, struct mthca_cq *cq,
-				  int entries)
-{
-	int ret;
-
-	spin_lock_irq(&cq->lock);
-	if (cq->resize_buf) {
-		ret = -EBUSY;
-		goto unlock;
-	}
-
-	cq->resize_buf = kmalloc(sizeof *cq->resize_buf, GFP_ATOMIC);
-	if (!cq->resize_buf) {
-		ret = -ENOMEM;
-		goto unlock;
-	}
-
-	cq->resize_buf->state = CQ_RESIZE_ALLOC;
-
-	ret = 0;
-
-unlock:
-	spin_unlock_irq(&cq->lock);
-
-	if (ret)
-		return ret;
-
-	ret = mthca_alloc_cq_buf(dev, &cq->resize_buf->buf, entries);
-	if (ret) {
-		spin_lock_irq(&cq->lock);
-		kfree(cq->resize_buf);
-		cq->resize_buf = NULL;
-		spin_unlock_irq(&cq->lock);
-		return ret;
-	}
-
-	cq->resize_buf->cqe = entries - 1;
-
-	spin_lock_irq(&cq->lock);
-	cq->resize_buf->state = CQ_RESIZE_READY;
-	spin_unlock_irq(&cq->lock);
-
 	return 0;
 }
 
@@ -735,60 +686,19 @@ static int mthca_resize_cq(struct ib_cq *ibcq, int entries, struct ib_udata *uda
 		goto out;
 	}
 
-	if (cq->is_kernel) {
-		ret = mthca_alloc_resize_buf(dev, cq, entries);
-		if (ret)
-			goto out;
-		lkey = cq->resize_buf->buf.mr.ibmr.lkey;
-	} else {
-		if (ib_copy_from_udata(&ucmd, udata, sizeof ucmd)) {
-			ret = -EFAULT;
-			goto out;
-		}
-		lkey = ucmd.lkey;
-	}
-
-	ret = mthca_RESIZE_CQ(dev, cq->cqn, lkey, ilog2(entries));
-
-	if (ret) {
-		if (cq->resize_buf) {
-			mthca_free_cq_buf(dev, &cq->resize_buf->buf,
-					  cq->resize_buf->cqe);
-			kfree(cq->resize_buf);
-			spin_lock_irq(&cq->lock);
-			cq->resize_buf = NULL;
-			spin_unlock_irq(&cq->lock);
-		}
+	if (ib_copy_from_udata(&ucmd, udata, sizeof ucmd)) {
+		ret = -EFAULT;
 		goto out;
 	}
+	lkey = ucmd.lkey;
 
-	if (cq->is_kernel) {
-		struct mthca_cq_buf tbuf;
-		int tcqe;
+	ret = mthca_RESIZE_CQ(dev, cq->cqn, lkey, ilog2(entries));
+	if (ret)
+		goto out;
 
-		spin_lock_irq(&cq->lock);
-		if (cq->resize_buf->state == CQ_RESIZE_READY) {
-			mthca_cq_resize_copy_cqes(cq);
-			tbuf         = cq->buf;
-			tcqe         = cq->ibcq.cqe;
-			cq->buf      = cq->resize_buf->buf;
-			cq->ibcq.cqe = cq->resize_buf->cqe;
-		} else {
-			tbuf = cq->resize_buf->buf;
-			tcqe = cq->resize_buf->cqe;
-		}
-
-		kfree(cq->resize_buf);
-		cq->resize_buf = NULL;
-		spin_unlock_irq(&cq->lock);
-
-		mthca_free_cq_buf(dev, &tbuf, tcqe);
-	} else
-		ibcq->cqe = entries - 1;
-
+	ibcq->cqe = entries - 1;
 out:
 	mutex_unlock(&cq->mutex);
-
 	return ret;
 }
 
