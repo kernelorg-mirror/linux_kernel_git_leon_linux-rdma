@@ -2015,6 +2015,9 @@ static int irdma_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
 static int irdma_resize_cq(struct ib_cq *ibcq, int entries,
 			   struct ib_udata *udata)
 {
+	struct irdma_resize_cq_req req = {};
+	struct irdma_ucontext *ucontext = rdma_udata_to_drv_context(
+		udata, struct irdma_ucontext, ibucontext);
 #define IRDMA_RESIZE_CQ_MIN_REQ_LEN offsetofend(struct irdma_resize_cq_req, user_cq_buffer)
 	struct irdma_cq *iwcq = to_iwcq(ibcq);
 	struct irdma_sc_dev *dev = iwcq->sc_cq.dev;
@@ -2029,7 +2032,6 @@ static int irdma_resize_cq(struct ib_cq *ibcq, int entries,
 	struct irdma_pci_f *rf;
 	struct irdma_cq_buf *cq_buf = NULL;
 	unsigned long flags;
-	u8 cqe_size;
 	int ret;
 
 	iwdev = to_iwdev(ibcq->device);
@@ -2039,81 +2041,39 @@ static int irdma_resize_cq(struct ib_cq *ibcq, int entries,
 	    IRDMA_FEATURE_CQ_RESIZE))
 		return -EOPNOTSUPP;
 
-	if (udata && udata->inlen < IRDMA_RESIZE_CQ_MIN_REQ_LEN)
+	if (udata->inlen < IRDMA_RESIZE_CQ_MIN_REQ_LEN)
 		return -EINVAL;
 
 	if (entries > rf->max_cqe)
 		return -EINVAL;
-
-	if (!iwcq->user_mode) {
-		entries += 2;
-
-		if (!iwcq->sc_cq.cq_uk.avoid_mem_cflct &&
-		    dev->hw_attrs.uk_attrs.hw_rev >= IRDMA_GEN_2)
-			entries *= 2;
-
-		if (entries & 1)
-			entries += 1; /* cq size must be an even number */
-
-		cqe_size = iwcq->sc_cq.cq_uk.avoid_mem_cflct ? 64 : 32;
-		if (entries * cqe_size == IRDMA_HW_PAGE_SIZE)
-			entries += 2;
-	}
 
 	info.cq_size = max(entries, 4);
 
 	if (info.cq_size == iwcq->sc_cq.cq_uk.cq_size - 1)
 		return 0;
 
-	if (udata) {
-		struct irdma_resize_cq_req req = {};
-		struct irdma_ucontext *ucontext =
-			rdma_udata_to_drv_context(udata, struct irdma_ucontext,
-						  ibucontext);
+	/* CQ resize not supported with legacy GEN_1 libi40iw */
+	if (ucontext->legacy_mode)
+		return -EOPNOTSUPP;
 
-		/* CQ resize not supported with legacy GEN_1 libi40iw */
-		if (ucontext->legacy_mode)
-			return -EOPNOTSUPP;
+	if (ib_copy_from_udata(&req, udata, min(sizeof(req), udata->inlen)))
+		return -EINVAL;
 
-		if (ib_copy_from_udata(&req, udata,
-				       min(sizeof(req), udata->inlen)))
-			return -EINVAL;
+	spin_lock_irqsave(&ucontext->cq_reg_mem_list_lock, flags);
+	iwpbl_buf = irdma_get_pbl((unsigned long)req.user_cq_buffer,
+				  &ucontext->cq_reg_mem_list);
+	spin_unlock_irqrestore(&ucontext->cq_reg_mem_list_lock, flags);
 
-		spin_lock_irqsave(&ucontext->cq_reg_mem_list_lock, flags);
-		iwpbl_buf = irdma_get_pbl((unsigned long)req.user_cq_buffer,
-					  &ucontext->cq_reg_mem_list);
-		spin_unlock_irqrestore(&ucontext->cq_reg_mem_list_lock, flags);
+	if (!iwpbl_buf)
+		return -ENOMEM;
 
-		if (!iwpbl_buf)
-			return -ENOMEM;
-
-		cqmr_buf = &iwpbl_buf->cq_mr;
-		if (iwpbl_buf->pbl_allocated) {
-			info.virtual_map = true;
-			info.pbl_chunk_size = 1;
-			info.first_pm_pbl_idx = cqmr_buf->cq_pbl.idx;
-		} else {
-			info.cq_pa = cqmr_buf->cq_pbl.addr;
-		}
+	cqmr_buf = &iwpbl_buf->cq_mr;
+	if (iwpbl_buf->pbl_allocated) {
+		info.virtual_map = true;
+		info.pbl_chunk_size = 1;
+		info.first_pm_pbl_idx = cqmr_buf->cq_pbl.idx;
 	} else {
-		/* Kmode CQ resize */
-		int rsize;
-
-		rsize = info.cq_size * sizeof(struct irdma_cqe);
-		kmem_buf.size = ALIGN(round_up(rsize, 256), 256);
-		kmem_buf.va = dma_alloc_coherent(dev->hw->device,
-						 kmem_buf.size, &kmem_buf.pa,
-						 GFP_KERNEL);
-		if (!kmem_buf.va)
-			return -ENOMEM;
-
-		info.cq_base = kmem_buf.va;
-		info.cq_pa = kmem_buf.pa;
-		cq_buf = kzalloc(sizeof(*cq_buf), GFP_KERNEL);
-		if (!cq_buf) {
-			ret = -ENOMEM;
-			goto error;
-		}
+		info.cq_pa = cqmr_buf->cq_pbl.addr;
 	}
 
 	cqp_request = irdma_alloc_and_get_cqp_request(&rf->cqp, true);
@@ -2154,13 +2114,7 @@ static int irdma_resize_cq(struct ib_cq *ibcq, int entries,
 
 	return 0;
 error:
-	if (!udata) {
-		dma_free_coherent(dev->hw->device, kmem_buf.size, kmem_buf.va,
-				  kmem_buf.pa);
-		kmem_buf.va = NULL;
-	}
 	kfree(cq_buf);
-
 	return ret;
 }
 
