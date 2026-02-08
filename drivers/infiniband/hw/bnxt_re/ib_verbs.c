@@ -3530,10 +3530,6 @@ int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 	cq =  container_of(ibcq, struct bnxt_re_cq, ib_cq);
 	rdev = cq->rdev;
 	dev_attr = rdev->dev_attr;
-	if (!ibcq->uobject) {
-		ibdev_err(&rdev->ibdev, "Kernel CQ Resize not supported");
-		return -EOPNOTSUPP;
-	}
 
 	if (cq->resize_umem) {
 		ibdev_err(&rdev->ibdev, "Resize CQ %#x failed - Busy",
@@ -3547,7 +3543,7 @@ int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 	/* uverbs consumer */
 	rc = ib_copy_validate_udata_in(udata, req, cq_va);
 	if (rc)
-		goto fail;
+		return rc;
 
 	cq->resize_umem = ib_umem_get(&rdev->ibdev, req.cq_va,
 				      entries * sizeof(struct cq_base),
@@ -3557,7 +3553,7 @@ int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 		ibdev_err(&rdev->ibdev, "%s: ib_umem_get failed! rc = %pe\n",
 			  __func__, cq->resize_umem);
 		cq->resize_umem = NULL;
-		goto fail;
+		return rc;
 	}
 	cq->resize_cqe = entries;
 	memcpy(&sg_info, &cq->qplib_cq.sg_info, sizeof(sg_info));
@@ -3581,13 +3577,11 @@ int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 	return ib_respond_empty_udata(udata);
 
 fail:
-	if (cq->resize_umem) {
-		ib_umem_release(cq->resize_umem);
-		cq->resize_umem = NULL;
-		cq->resize_cqe = 0;
-		memcpy(&cq->qplib_cq.sg_info, &sg_info, sizeof(sg_info));
-		cq->qplib_cq.dpi = orig_dpi;
-	}
+	ib_umem_release(cq->resize_umem);
+	cq->resize_umem = NULL;
+	cq->resize_cqe = 0;
+	memcpy(&cq->qplib_cq.sg_info, &sg_info, sizeof(sg_info));
+	cq->qplib_cq.dpi = orig_dpi;
 	return rc;
 }
 
