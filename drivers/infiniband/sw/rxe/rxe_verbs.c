@@ -1146,32 +1146,19 @@ static int rxe_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
 	struct rxe_resize_cq_resp __user *uresp = NULL;
 	int err;
 
-	if (udata) {
-		if (udata->outlen < sizeof(*uresp)) {
-			err = -EINVAL;
-			rxe_dbg_cq(cq, "malformed udata\n");
-			goto err_out;
-		}
-		uresp = udata->outbuf;
-	}
+	if (udata->outlen < sizeof(*uresp))
+		return -EINVAL;
+	uresp = udata->outbuf;
 
 	err = rxe_cq_chk_attr(rxe, cq, cqe, 0);
-	if (err) {
-		rxe_dbg_cq(cq, "bad attr, err = %d\n", err);
-		goto err_out;
-	}
+	if (err)
+		return err;
 
 	err = rxe_cq_resize_queue(cq, cqe, uresp, udata);
-	if (err) {
-		rxe_dbg_cq(cq, "resize cq failed, err = %d\n", err);
-		goto err_out;
-	}
+	if (err)
+		return err;
 
 	return 0;
-
-err_out:
-	rxe_err_cq(cq, "returned err = %d\n", err);
-	return err;
 }
 
 static int rxe_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *wc)
