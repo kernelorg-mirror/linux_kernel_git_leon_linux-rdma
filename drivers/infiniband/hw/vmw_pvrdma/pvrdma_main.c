@@ -194,6 +194,7 @@ static const struct ib_device_ops pvrdma_dev_ops = {
 	.alloc_ucontext = pvrdma_alloc_ucontext,
 	.create_ah = pvrdma_create_ah,
 	.create_cq = pvrdma_create_cq,
+	.create_user_cq = pvrdma_create_user_cq,
 	.create_qp = pvrdma_create_qp,
 	.dealloc_pd = pvrdma_dealloc_pd,
 	.dealloc_ucontext = pvrdma_dealloc_ucontext,
