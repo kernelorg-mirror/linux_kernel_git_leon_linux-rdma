@@ -1638,8 +1638,11 @@ struct ib_cq {
 	struct ib_wc		*wc;
 	struct list_head        pool_entry;
 	union {
+		/* Kernel CQs */
 		struct irq_poll		iop;
 		struct work_struct	work;
+		/* Uverbs CQs */
+		struct mutex resize_mutex;
 	};
 	struct workqueue_struct *comp_wq;
 	struct dim *dim;

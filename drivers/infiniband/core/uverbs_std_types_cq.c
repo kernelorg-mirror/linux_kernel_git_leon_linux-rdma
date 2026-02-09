@@ -195,6 +195,7 @@ static int UVERBS_HANDLER(UVERBS_METHOD_CQ_CREATE)(
 	 */
 	cq->umem = umem;
 	atomic_set(&cq->usecnt, 0);
+	mutex_init(&cq->resize_mutex);
 
 	rdma_restrack_new(&cq->res, RDMA_RESTRACK_CQ);
 	rdma_restrack_set_name(&cq->res, NULL);
