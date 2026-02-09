@@ -229,6 +229,7 @@ static const struct ib_device_ops ionic_dev_ops = {
 	.alloc_mw = ionic_alloc_mw,
 	.dealloc_mw = ionic_dealloc_mw,
 	.create_cq = ionic_create_cq,
+	.create_user_cq = ionic_create_user_cq,
 	.destroy_cq = ionic_destroy_cq,
 	.create_qp = ionic_create_qp,
 	.modify_qp = ionic_modify_qp,
