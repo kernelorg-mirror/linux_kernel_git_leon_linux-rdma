@@ -1136,6 +1136,7 @@ static int ib_uverbs_resize_cq(struct uverbs_attr_bundle *attrs)
 {
 	struct ib_uverbs_resize_cq	cmd;
 	struct ib_uverbs_resize_cq_resp	resp = {};
+	struct ib_uobject *uobj;
 	struct ib_cq			*cq;
 	int ret;
 
@@ -1146,10 +1147,11 @@ static int ib_uverbs_resize_cq(struct uverbs_attr_bundle *attrs)
 	if (!cmd.cqe)
 		return -EINVAL;
 
-	cq = uobj_get_obj_read(cq, UVERBS_OBJECT_CQ, cmd.cq_handle, attrs);
-	if (IS_ERR(cq))
-		return PTR_ERR(cq);
+	uobj = uobj_get_write(UVERBS_OBJECT_CQ, cmd.cq_handle, attrs);
+	if (IS_ERR(uobj))
+		return PTR_ERR(uobj);
 
+	cq = uobj->object;
 	if (cmd.cqe > cq->device->attrs.max_cqe) {
 		ret = -EINVAL;
 		goto out;
@@ -1164,7 +1166,7 @@ static int ib_uverbs_resize_cq(struct uverbs_attr_bundle *attrs)
 	ret = uverbs_response(attrs, &resp, sizeof(resp));
 out:
 	rdma_lookup_put_uobject(&cq->uobject->uevent.uobject,
-				UVERBS_LOOKUP_READ);
+				UVERBS_LOOKUP_WRITE);
 
 	return ret;
 }
