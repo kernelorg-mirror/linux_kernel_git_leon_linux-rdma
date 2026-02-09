@@ -78,8 +78,7 @@ static int UVERBS_HANDLER(UVERBS_METHOD_CQ_CREATE)(
 	int buffer_fd;
 	int ret;
 
-	if ((!ib_dev->ops.create_cq && !ib_dev->ops.create_user_cq) ||
-	    !ib_dev->ops.destroy_cq)
+	if (!ib_dev->ops.create_user_cq || !ib_dev->ops.destroy_cq)
 		return -EOPNOTSUPP;
 
 	ret = uverbs_copy_from(&attr.comp_vector, attrs,
@@ -200,10 +199,7 @@ static int UVERBS_HANDLER(UVERBS_METHOD_CQ_CREATE)(
 	rdma_restrack_new(&cq->res, RDMA_RESTRACK_CQ);
 	rdma_restrack_set_name(&cq->res, NULL);
 
-	if (ib_dev->ops.create_user_cq)
-		ret = ib_dev->ops.create_user_cq(cq, &attr, attrs);
-	else
-		ret = ib_dev->ops.create_cq(cq, &attr, attrs);
+	ret = ib_dev->ops.create_user_cq(cq, &attr, attrs);
 	if (ret)
 		goto err_free;
 
