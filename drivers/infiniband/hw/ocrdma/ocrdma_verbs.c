@@ -966,8 +966,9 @@ err:
 	return status;
 }
 
-int ocrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		     struct uverbs_attr_bundle *attrs)
+int ocrdma_create_user_cq(struct ib_cq *ibcq,
+			  const struct ib_cq_init_attr *attr,
+			  struct uverbs_attr_bundle *attrs)
 {
 	struct ib_udata *udata = &attrs->driver_udata;
 	struct ib_device *ibdev = ibcq->device;
@@ -976,36 +977,29 @@ int ocrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	struct ocrdma_dev *dev = get_ocrdma_dev(ibdev);
 	struct ocrdma_ucontext *uctx = rdma_udata_to_drv_context(
 		udata, struct ocrdma_ucontext, ibucontext);
-	u16 pd_id = 0;
 	int status;
 	struct ocrdma_create_cq_ureq ureq;
 
-	if (attr->flags)
+	if (attr->flags || ibcq->umem)
 		return -EOPNOTSUPP;
 
-	if (udata) {
-		if (ib_copy_from_udata(&ureq, udata, sizeof(ureq)))
-			return -EFAULT;
-	} else
-		ureq.dpp_cq = 0;
+	if (ib_copy_from_udata(&ureq, udata, sizeof(ureq)))
+		return -EFAULT;
 
 	spin_lock_init(&cq->cq_lock);
 	spin_lock_init(&cq->comp_handler_lock);
 	INIT_LIST_HEAD(&cq->sq_head);
 	INIT_LIST_HEAD(&cq->rq_head);
 
-	if (udata)
-		pd_id = uctx->cntxt_pd->id;
-
-	status = ocrdma_mbx_create_cq(dev, cq, entries, ureq.dpp_cq, pd_id);
+	status = ocrdma_mbx_create_cq(dev, cq, entries, ureq.dpp_cq,
+				      uctx->cntxt_pd->id);
 	if (status)
 		return status;
 
-	if (udata) {
-		status = ocrdma_copy_cq_uresp(dev, cq, udata);
-		if (status)
-			goto ctx_err;
-	}
+	status = ocrdma_copy_cq_uresp(dev, cq, udata);
+	if (status)
+		goto ctx_err;
+
 	cq->phase = OCRDMA_CQE_VALID;
 	dev->cq_tbl[cq->id] = cq;
 	return 0;
@@ -1013,6 +1007,32 @@ int ocrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 ctx_err:
 	ocrdma_mbx_destroy_cq(dev, cq);
 	return status;
+}
+
+int ocrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+		     struct uverbs_attr_bundle *attrs)
+{
+	struct ib_device *ibdev = ibcq->device;
+	int entries = attr->cqe;
+	struct ocrdma_cq *cq = get_ocrdma_cq(ibcq);
+	struct ocrdma_dev *dev = get_ocrdma_dev(ibdev);
+	int status;
+
+	if (attr->flags)
+		return -EOPNOTSUPP;
+
+	spin_lock_init(&cq->cq_lock);
+	spin_lock_init(&cq->comp_handler_lock);
+	INIT_LIST_HEAD(&cq->sq_head);
+	INIT_LIST_HEAD(&cq->rq_head);
+
+	status = ocrdma_mbx_create_cq(dev, cq, entries, 0, 0);
+	if (status)
+		return status;
+
+	cq->phase = OCRDMA_CQE_VALID;
+	dev->cq_tbl[cq->id] = cq;
+	return 0;
 }
 
 int ocrdma_resize_cq(struct ib_cq *ibcq, int new_cnt,

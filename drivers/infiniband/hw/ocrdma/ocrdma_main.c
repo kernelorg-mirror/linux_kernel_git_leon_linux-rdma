@@ -141,6 +141,7 @@ static const struct ib_device_ops ocrdma_dev_ops = {
 	.create_cq = ocrdma_create_cq,
 	.create_qp = ocrdma_create_qp,
 	.create_user_ah = ocrdma_create_ah,
+	.create_user_cq = ocrdma_create_user_cq,
 	.dealloc_pd = ocrdma_dealloc_pd,
 	.dealloc_ucontext = ocrdma_dealloc_ucontext,
 	.dereg_mr = ocrdma_dereg_mr,
