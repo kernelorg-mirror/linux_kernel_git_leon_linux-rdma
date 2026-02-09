@@ -147,33 +147,32 @@ static void send_complete(struct work_struct *work)
 }
 
 /**
- * rvt_create_cq - create a completion queue
+ * rvt_create_user_cq - create a completion queue for userspace
  * @ibcq: Allocated CQ
  * @attr: creation attributes
  * @attrs: uverbs bundle
  *
- * Called by ib_create_cq() in the generic verbs code.
+ * Called by ib_create_cq() in the generic verbs code for userspace CQs.
  *
  * Return: 0 on success
  */
-int rvt_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		  struct uverbs_attr_bundle *attrs)
+int rvt_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+		       struct uverbs_attr_bundle *attrs)
 {
 	struct ib_udata *udata = &attrs->driver_udata;
 	struct ib_device *ibdev = ibcq->device;
 	struct rvt_dev_info *rdi = ib_to_rvt(ibdev);
 	struct rvt_cq *cq = ibcq_to_rvtcq(ibcq);
-	struct rvt_cq_wc *u_wc = NULL;
-	struct rvt_k_cq_wc *k_wc = NULL;
+	struct rvt_cq_wc *u_wc;
 	u32 sz;
 	unsigned int entries = attr->cqe;
 	int comp_vector = attr->comp_vector;
 	int err;
 
-	if (attr->flags)
+	if (attr->flags || ibcq->umem)
 		return -EOPNOTSUPP;
 
-	if (entries < 1 || entries > rdi->dparms.props.max_cqe)
+	if (entries > rdi->dparms.props.max_cqe)
 		return -EINVAL;
 
 	if (comp_vector < 0)
@@ -188,36 +187,26 @@ int rvt_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	 * We need to use vmalloc() in order to support mmap and large
 	 * numbers of entries.
 	 */
-	if (udata && udata->outlen >= sizeof(__u64)) {
-		sz = sizeof(struct ib_uverbs_wc) * (entries + 1);
-		sz += sizeof(*u_wc);
-		u_wc = vmalloc_user(sz);
-		if (!u_wc)
-			return -ENOMEM;
-	} else {
-		sz = sizeof(struct ib_wc) * (entries + 1);
-		sz += sizeof(*k_wc);
-		k_wc = vzalloc_node(sz, rdi->dparms.node);
-		if (!k_wc)
-			return -ENOMEM;
-	}
+	sz = sizeof(struct ib_uverbs_wc) * (entries + 1);
+	sz += sizeof(*u_wc);
+	u_wc = vmalloc_user(sz);
+	if (!u_wc)
+		return -ENOMEM;
 
 	/*
 	 * Return the address of the WC as the offset to mmap.
 	 * See rvt_mmap() for details.
 	 */
-	if (udata && udata->outlen >= sizeof(__u64)) {
-		cq->ip = rvt_create_mmap_info(rdi, sz, udata, u_wc);
-		if (IS_ERR(cq->ip)) {
-			err = PTR_ERR(cq->ip);
-			goto bail_wc;
-		}
-
-		err = ib_copy_to_udata(udata, &cq->ip->offset,
-				       sizeof(cq->ip->offset));
-		if (err)
-			goto bail_ip;
+	cq->ip = rvt_create_mmap_info(rdi, sz, udata, u_wc);
+	if (IS_ERR(cq->ip)) {
+		err = PTR_ERR(cq->ip);
+		goto bail_wc;
 	}
+
+	err = ib_copy_to_udata(udata, &cq->ip->offset,
+			       sizeof(cq->ip->offset));
+	if (err)
+		goto bail_ip;
 
 	spin_lock_irq(&rdi->n_cqs_lock);
 	if (rdi->n_cqs_allocated == rdi->dparms.props.max_cq) {
@@ -229,11 +218,9 @@ int rvt_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	rdi->n_cqs_allocated++;
 	spin_unlock_irq(&rdi->n_cqs_lock);
 
-	if (cq->ip) {
-		spin_lock_irq(&rdi->pending_lock);
-		list_add(&cq->ip->pending_mmaps, &rdi->pending_mmaps);
-		spin_unlock_irq(&rdi->pending_lock);
-	}
+	spin_lock_irq(&rdi->pending_lock);
+	list_add(&cq->ip->pending_mmaps, &rdi->pending_mmaps);
+	spin_unlock_irq(&rdi->pending_lock);
 
 	/*
 	 * ib_create_cq() will initialize cq->ibcq except for cq->ibcq.cqe.
@@ -252,10 +239,7 @@ int rvt_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	cq->notify = RVT_CQ_NONE;
 	spin_lock_init(&cq->lock);
 	INIT_WORK(&cq->comptask, send_complete);
-	if (u_wc)
-		cq->queue = u_wc;
-	else
-		cq->kqueue = k_wc;
+	cq->queue = u_wc;
 
 	trace_rvt_create_cq(cq, attr);
 	return 0;
@@ -264,6 +248,84 @@ bail_ip:
 	kfree(cq->ip);
 bail_wc:
 	vfree(u_wc);
+	return err;
+}
+
+/**
+ * rvt_create_cq - create a completion queue for kernel
+ * @ibcq: Allocated CQ
+ * @attr: creation attributes
+ * @attrs: uverbs bundle
+ *
+ * Called by ib_create_cq() in the generic verbs code for kernel CQs.
+ *
+ * Return: 0 on success
+ */
+int rvt_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+		  struct uverbs_attr_bundle *attrs)
+{
+	struct ib_device *ibdev = ibcq->device;
+	struct rvt_dev_info *rdi = ib_to_rvt(ibdev);
+	struct rvt_cq *cq = ibcq_to_rvtcq(ibcq);
+	struct rvt_k_cq_wc *k_wc;
+	u32 sz;
+	unsigned int entries = attr->cqe;
+	int comp_vector = attr->comp_vector;
+	int err;
+
+	if (attr->flags)
+		return -EOPNOTSUPP;
+
+	if (entries > rdi->dparms.props.max_cqe)
+		return -EINVAL;
+
+	if (comp_vector < 0)
+		comp_vector = 0;
+
+	comp_vector = comp_vector % rdi->ibdev.num_comp_vectors;
+
+	/*
+	 * Allocate the completion queue entries and head/tail pointers.
+	 */
+	sz = sizeof(struct ib_wc) * (entries + 1);
+	sz += sizeof(*k_wc);
+	k_wc = vzalloc_node(sz, rdi->dparms.node);
+	if (!k_wc)
+		return -ENOMEM;
+
+	spin_lock_irq(&rdi->n_cqs_lock);
+	if (rdi->n_cqs_allocated == rdi->dparms.props.max_cq) {
+		spin_unlock_irq(&rdi->n_cqs_lock);
+		err = -ENOMEM;
+		goto bail_wc;
+	}
+
+	rdi->n_cqs_allocated++;
+	spin_unlock_irq(&rdi->n_cqs_lock);
+
+	/*
+	 * ib_create_cq() will initialize cq->ibcq except for cq->ibcq.cqe.
+	 * The number of entries should be >= the number requested or return
+	 * an error.
+	 */
+	cq->rdi = rdi;
+	if (rdi->driver_f.comp_vect_cpu_lookup)
+		cq->comp_vector_cpu =
+			rdi->driver_f.comp_vect_cpu_lookup(rdi, comp_vector);
+	else
+		cq->comp_vector_cpu =
+			cpumask_first(cpumask_of_node(rdi->dparms.node));
+
+	cq->ibcq.cqe = entries;
+	cq->notify = RVT_CQ_NONE;
+	spin_lock_init(&cq->lock);
+	INIT_WORK(&cq->comptask, send_complete);
+	cq->kqueue = k_wc;
+
+	trace_rvt_create_cq(cq, attr);
+	return 0;
+
+bail_wc:
 	vfree(k_wc);
 	return err;
 }
