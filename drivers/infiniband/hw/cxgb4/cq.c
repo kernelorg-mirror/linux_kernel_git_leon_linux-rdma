@@ -994,8 +994,8 @@ int c4iw_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
 	return 0;
 }
 
-int c4iw_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		   struct uverbs_attr_bundle *attrs)
+int c4iw_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+			struct uverbs_attr_bundle *attrs)
 {
 	struct ib_udata *udata = &attrs->driver_udata;
 	struct ib_device *ibdev = ibcq->device;
@@ -1012,25 +1012,21 @@ int c4iw_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		udata, struct c4iw_ucontext, ibucontext);
 
 	pr_debug("ib_dev %p entries %d\n", ibdev, entries);
-	if (attr->flags)
+	if (attr->flags || ibcq->umem)
 		return -EOPNOTSUPP;
 
-	if (entries < 1 || entries > ibdev->attrs.max_cqe)
+	if (attr->cqe > ibdev->attrs.max_cqe)
 		return -EINVAL;
 
 	if (vector >= rhp->rdev.lldi.nciq)
 		return -EINVAL;
 
-	if (udata) {
-		if (udata->inlen < sizeof(ucmd))
-			ucontext->is_32b_cqe = 1;
-	}
+	if (udata->inlen < sizeof(ucmd))
+		ucontext->is_32b_cqe = 1;
 
 	chp->wr_waitp = c4iw_alloc_wr_wait(GFP_KERNEL);
-	if (!chp->wr_waitp) {
-		ret = -ENOMEM;
-		goto err_free_chp;
-	}
+	if (!chp->wr_waitp)
+		return -ENOMEM;
 	c4iw_init_wr_wait(chp->wr_waitp);
 
 	wr_len = sizeof(struct fw_ri_res_wr) + sizeof(struct fw_ri_res);
@@ -1063,22 +1059,19 @@ int c4iw_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	if (hwentries < 64)
 		hwentries = 64;
 
-	memsize = hwentries * ((ucontext && ucontext->is_32b_cqe) ?
+	memsize = hwentries * (ucontext->is_32b_cqe ?
 			(sizeof(*chp->cq.queue) / 2) : sizeof(*chp->cq.queue));
 
 	/*
 	 * memsize must be a multiple of the page size if its a user cq.
 	 */
-	if (udata)
-		memsize = roundup(memsize, PAGE_SIZE);
+	memsize = roundup(memsize, PAGE_SIZE);
 
 	chp->cq.size = hwentries;
 	chp->cq.memsize = memsize;
 	chp->cq.vector = vector;
 
-	ret = create_cq(&rhp->rdev, &chp->cq,
-			ucontext ? &ucontext->uctx : &rhp->rdev.uctx,
-			chp->wr_waitp);
+	ret = create_cq(&rhp->rdev, &chp->cq, &ucontext->uctx, chp->wr_waitp);
 	if (ret)
 		goto err_free_skb;
 
@@ -1093,54 +1086,52 @@ int c4iw_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	if (ret)
 		goto err_destroy_cq;
 
-	if (ucontext) {
-		ret = -ENOMEM;
-		mm = kmalloc(sizeof(*mm), GFP_KERNEL);
-		if (!mm)
-			goto err_remove_handle;
-		mm2 = kmalloc(sizeof(*mm2), GFP_KERNEL);
-		if (!mm2)
-			goto err_free_mm;
+	ret = -ENOMEM;
+	mm = kmalloc(sizeof(*mm), GFP_KERNEL);
+	if (!mm)
+		goto err_remove_handle;
+	mm2 = kmalloc(sizeof(*mm2), GFP_KERNEL);
+	if (!mm2)
+		goto err_free_mm;
 
-		memset(&uresp, 0, sizeof(uresp));
-		uresp.qid_mask = rhp->rdev.cqmask;
-		uresp.cqid = chp->cq.cqid;
-		uresp.size = chp->cq.size;
-		uresp.memsize = chp->cq.memsize;
-		spin_lock(&ucontext->mmap_lock);
-		uresp.key = ucontext->key;
-		ucontext->key += PAGE_SIZE;
-		uresp.gts_key = ucontext->key;
-		ucontext->key += PAGE_SIZE;
-		/* communicate to the userspace that
-		 * kernel driver supports 64B CQE
-		 */
-		uresp.flags |= C4IW_64B_CQE;
+	memset(&uresp, 0, sizeof(uresp));
+	uresp.qid_mask = rhp->rdev.cqmask;
+	uresp.cqid = chp->cq.cqid;
+	uresp.size = chp->cq.size;
+	uresp.memsize = chp->cq.memsize;
+	spin_lock(&ucontext->mmap_lock);
+	uresp.key = ucontext->key;
+	ucontext->key += PAGE_SIZE;
+	uresp.gts_key = ucontext->key;
+	ucontext->key += PAGE_SIZE;
+	/* communicate to the userspace that
+	 * kernel driver supports 64B CQE
+	 */
+	uresp.flags |= C4IW_64B_CQE;
 
-		spin_unlock(&ucontext->mmap_lock);
-		ret = ib_copy_to_udata(udata, &uresp,
-				       ucontext->is_32b_cqe ?
-				       sizeof(uresp) - sizeof(uresp.flags) :
-				       sizeof(uresp));
-		if (ret)
-			goto err_free_mm2;
+	spin_unlock(&ucontext->mmap_lock);
+	ret = ib_copy_to_udata(udata, &uresp,
+			       ucontext->is_32b_cqe ?
+			       sizeof(uresp) - sizeof(uresp.flags) :
+			       sizeof(uresp));
+	if (ret)
+		goto err_free_mm2;
 
-		mm->key = uresp.key;
-		mm->addr = 0;
-		mm->vaddr = chp->cq.queue;
-		mm->dma_addr = chp->cq.dma_addr;
-		mm->len = chp->cq.memsize;
-		insert_flag_to_mmap(&rhp->rdev, mm, mm->addr);
-		insert_mmap(ucontext, mm);
+	mm->key = uresp.key;
+	mm->addr = 0;
+	mm->vaddr = chp->cq.queue;
+	mm->dma_addr = chp->cq.dma_addr;
+	mm->len = chp->cq.memsize;
+	insert_flag_to_mmap(&rhp->rdev, mm, mm->addr);
+	insert_mmap(ucontext, mm);
 
-		mm2->key = uresp.gts_key;
-		mm2->addr = chp->cq.bar2_pa;
-		mm2->len = PAGE_SIZE;
-		mm2->vaddr = NULL;
-		mm2->dma_addr = 0;
-		insert_flag_to_mmap(&rhp->rdev, mm2, mm2->addr);
-		insert_mmap(ucontext, mm2);
-	}
+	mm2->key = uresp.gts_key;
+	mm2->addr = chp->cq.bar2_pa;
+	mm2->len = PAGE_SIZE;
+	mm2->vaddr = NULL;
+	mm2->dma_addr = 0;
+	insert_flag_to_mmap(&rhp->rdev, mm2, mm2->addr);
+	insert_mmap(ucontext, mm2);
 
 	pr_debug("cqid 0x%0x chp %p size %u memsize %zu, dma_addr %pad\n",
 		 chp->cq.cqid, chp, chp->cq.size, chp->cq.memsize,
@@ -1153,14 +1144,103 @@ err_free_mm:
 err_remove_handle:
 	xa_erase_irq(&rhp->cqs, chp->cq.cqid);
 err_destroy_cq:
-	destroy_cq(&chp->rhp->rdev, &chp->cq,
-		   ucontext ? &ucontext->uctx : &rhp->rdev.uctx,
+	destroy_cq(&chp->rhp->rdev, &chp->cq, &ucontext->uctx,
 		   chp->destroy_skb, chp->wr_waitp);
 err_free_skb:
 	kfree_skb(chp->destroy_skb);
 err_free_wr_wait:
 	c4iw_put_wr_wait(chp->wr_waitp);
-err_free_chp:
+	return ret;
+}
+
+int c4iw_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+		   struct uverbs_attr_bundle *attrs)
+{
+	struct ib_device *ibdev = ibcq->device;
+	int entries = attr->cqe;
+	int vector = attr->comp_vector;
+	struct c4iw_dev *rhp = to_c4iw_dev(ibcq->device);
+	struct c4iw_cq *chp = to_c4iw_cq(ibcq);
+	int ret, wr_len;
+	size_t memsize, hwentries;
+
+	pr_debug("ib_dev %p entries %d\n", ibdev, entries);
+	if (attr->flags)
+		return -EOPNOTSUPP;
+
+	if (attr->cqe > ibdev->attrs.max_cqe)
+		return -EINVAL;
+
+	if (vector >= rhp->rdev.lldi.nciq)
+		return -EINVAL;
+
+	chp->wr_waitp = c4iw_alloc_wr_wait(GFP_KERNEL);
+	if (!chp->wr_waitp)
+		return -ENOMEM;
+	c4iw_init_wr_wait(chp->wr_waitp);
+
+	wr_len = sizeof(struct fw_ri_res_wr) + sizeof(struct fw_ri_res);
+	chp->destroy_skb = alloc_skb(wr_len, GFP_KERNEL);
+	if (!chp->destroy_skb) {
+		ret = -ENOMEM;
+		goto err_free_wr_wait;
+	}
+
+	/* account for the status page. */
+	entries++;
+
+	/* IQ needs one extra entry to differentiate full vs empty. */
+	entries++;
+
+	/*
+	 * entries must be multiple of 16 for HW.
+	 */
+	entries = roundup(entries, 16);
+
+	/*
+	 * Make actual HW queue 2x to avoid cdix_inc overflows.
+	 */
+	hwentries = min(entries * 2, rhp->rdev.hw_queue.t4_max_iq_size);
+
+	/*
+	 * Make HW queue at least 64 entries so GTS updates aren't too
+	 * frequent.
+	 */
+	if (hwentries < 64)
+		hwentries = 64;
+
+	memsize = hwentries * sizeof(*chp->cq.queue);
+
+	chp->cq.size = hwentries;
+	chp->cq.memsize = memsize;
+	chp->cq.vector = vector;
+
+	ret = create_cq(&rhp->rdev, &chp->cq, &rhp->rdev.uctx, chp->wr_waitp);
+	if (ret)
+		goto err_free_skb;
+
+	chp->rhp = rhp;
+	chp->cq.size--;				/* status page */
+	chp->ibcq.cqe = entries - 2;
+	spin_lock_init(&chp->lock);
+	spin_lock_init(&chp->comp_handler_lock);
+	refcount_set(&chp->refcnt, 1);
+	init_completion(&chp->cq_rel_comp);
+	ret = xa_insert_irq(&rhp->cqs, chp->cq.cqid, chp, GFP_KERNEL);
+	if (ret)
+		goto err_destroy_cq;
+
+	pr_debug("cqid 0x%0x chp %p size %u memsize %zu, dma_addr %pad\n",
+		 chp->cq.cqid, chp, chp->cq.size, chp->cq.memsize,
+		 &chp->cq.dma_addr);
+	return 0;
+err_destroy_cq:
+	destroy_cq(&chp->rhp->rdev, &chp->cq, &rhp->rdev.uctx,
+		   chp->destroy_skb, chp->wr_waitp);
+err_free_skb:
+	kfree_skb(chp->destroy_skb);
+err_free_wr_wait:
+	c4iw_put_wr_wait(chp->wr_waitp);
 	return ret;
 }
 
