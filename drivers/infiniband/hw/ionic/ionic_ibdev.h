@@ -482,6 +482,8 @@ int ionic_alloc_mw(struct ib_mw *ibmw, struct ib_udata *udata);
 int ionic_dealloc_mw(struct ib_mw *ibmw);
 int ionic_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		    struct uverbs_attr_bundle *attrs);
+int ionic_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+			 struct uverbs_attr_bundle *attrs);
 int ionic_destroy_cq(struct ib_cq *ibcq, struct ib_udata *udata);
 int ionic_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attr,
 		    struct ib_udata *udata);

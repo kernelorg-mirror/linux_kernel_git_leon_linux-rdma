@@ -89,7 +89,7 @@ int ionic_create_cq_common(struct ionic_vcq *vcq,
 
 	cq->vcq = vcq;
 
-	if (attr->cqe < 1 || attr->cqe + IONIC_CQ_GRACE > 0xffff) {
+	if (attr->cqe > 0xffff - IONIC_CQ_GRACE) {
 		rc = -EINVAL;
 		goto err_args;
 	}
@@ -1209,8 +1209,8 @@ static int ionic_destroy_cq_cmd(struct ionic_ibdev *dev, u32 cqid)
 	return ionic_admin_wait(dev, &wr, IONIC_ADMIN_F_TEARDOWN);
 }
 
-int ionic_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		    struct uverbs_attr_bundle *attrs)
+int ionic_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+			 struct uverbs_attr_bundle *attrs)
 {
 	struct ionic_ibdev *dev = to_ionic_ibdev(ibcq->device);
 	struct ib_udata *udata = &attrs->driver_udata;
@@ -1222,21 +1222,18 @@ int ionic_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	struct ionic_cq_req req;
 	int udma_idx = 0, rc;
 
-	if (udata) {
-		rc = ib_copy_from_udata(&req, udata, sizeof(req));
-		if (rc)
-			return rc;
-	}
+	if (ibcq->umem)
+		return -EOPNOTSUPP;
+
+	rc = ib_copy_from_udata(&req, udata, sizeof(req));
+	if (rc)
+		return rc;
 
 	vcq->udma_mask = BIT(dev->lif_cfg.udma_count) - 1;
+	vcq->udma_mask &= req.udma_mask;
 
-	if (udata)
-		vcq->udma_mask &= req.udma_mask;
-
-	if (!vcq->udma_mask) {
-		rc = -EINVAL;
-		goto err_init;
-	}
+	if (!vcq->udma_mask)
+		return -EINVAL;
 
 	for (; udma_idx < dev->lif_cfg.udma_count; ++udma_idx) {
 		if (!(vcq->udma_mask & BIT(udma_idx)))
@@ -1247,24 +1244,25 @@ int ionic_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 					    &resp.cqid[udma_idx],
 					    udma_idx);
 		if (rc)
-			goto err_init;
+			goto err_resp;
 
 		rc = ionic_create_cq_cmd(dev, ctx, &vcq->cq[udma_idx], &buf);
-		if (rc)
-			goto err_cmd;
+		if (rc) {
+			ionic_pgtbl_unbuf(dev, &buf);
+			ionic_destroy_cq_common(dev, &vcq->cq[udma_idx]);
+			goto err_resp;
+		}
 
 		ionic_pgtbl_unbuf(dev, &buf);
 	}
 
 	vcq->ibcq.cqe = attr->cqe;
 
-	if (udata) {
-		resp.udma_mask = vcq->udma_mask;
+	resp.udma_mask = vcq->udma_mask;
 
-		rc = ib_copy_to_udata(udata, &resp, sizeof(resp));
-		if (rc)
-			goto err_resp;
-	}
+	rc = ib_copy_to_udata(udata, &resp, sizeof(resp));
+	if (rc)
+		goto err_resp;
 
 	return 0;
 
@@ -1274,11 +1272,47 @@ err_resp:
 		if (!(vcq->udma_mask & BIT(udma_idx)))
 			continue;
 		ionic_destroy_cq_cmd(dev, vcq->cq[udma_idx].cqid);
-err_cmd:
 		ionic_pgtbl_unbuf(dev, &buf);
 		ionic_destroy_cq_common(dev, &vcq->cq[udma_idx]);
-err_init:
-		;
+	}
+
+	return rc;
+}
+
+int ionic_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+		    struct uverbs_attr_bundle *attrs)
+{
+	struct ionic_ibdev *dev = to_ionic_ibdev(ibcq->device);
+	struct ionic_vcq *vcq = to_ionic_vcq(ibcq);
+	struct ionic_tbl_buf buf = {};
+	int udma_idx = 0, rc;
+
+	vcq->udma_mask = BIT(dev->lif_cfg.udma_count) - 1;
+	for (; udma_idx < dev->lif_cfg.udma_count; ++udma_idx) {
+		rc = ionic_create_cq_common(vcq, &buf, attr, NULL, NULL, NULL,
+					    NULL, udma_idx);
+		if (rc)
+			goto err_resp;
+
+		rc = ionic_create_cq_cmd(dev, NULL, &vcq->cq[udma_idx], &buf);
+		if (rc) {
+			ionic_pgtbl_unbuf(dev, &buf);
+			ionic_destroy_cq_common(dev, &vcq->cq[udma_idx]);
+			goto err_resp;
+		}
+
+		ionic_pgtbl_unbuf(dev, &buf);
+	}
+
+	vcq->ibcq.cqe = attr->cqe;
+
+	return 0;
+
+err_resp:
+	while (udma_idx--) {
+		ionic_destroy_cq_cmd(dev, vcq->cq[udma_idx].cqid);
+		ionic_pgtbl_unbuf(dev, &buf);
+		ionic_destroy_cq_common(dev, &vcq->cq[udma_idx]);
 	}
 
 	return rc;
