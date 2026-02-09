@@ -326,11 +326,20 @@ static int mana_ib_create_qp_raw(struct ib_qp *ibqp, struct ib_pd *ibpd,
 	ibdev_dbg(&mdev->ib_dev, "ucmd sq_buf_addr 0x%llx port %u\n",
 		  ucmd.sq_buf_addr, ucmd.port);
 
-	err = mana_ib_create_queue(mdev, ucmd.sq_buf_addr, ucmd.sq_buf_size, &qp->raw_sq);
+	qp->raw_sq.umem = ib_umem_get(&mdev->ib_dev, ucmd.sq_buf_addr,
+				      ucmd.sq_buf_size, IB_ACCESS_LOCAL_WRITE);
+	if (IS_ERR(qp->raw_sq.umem)) {
+		err = PTR_ERR(qp->raw_sq.umem);
+		ibdev_dbg(&mdev->ib_dev,
+			  "Failed to get umem for qp-raw, err %d\n", err);
+		goto err_free_vport;
+	}
+
+	err = mana_ib_create_queue(mdev, &qp->raw_sq);
 	if (err) {
 		ibdev_dbg(&mdev->ib_dev,
 			  "Failed to create queue for create qp-raw, err %d\n", err);
-		goto err_free_vport;
+		goto err_release_umem;
 	}
 
 	/* Create a WQ on the same port handle used by the Ethernet */
@@ -391,6 +400,10 @@ err_destroy_wq_obj:
 
 err_destroy_queue:
 	mana_ib_destroy_queue(mdev, &qp->raw_sq);
+	return err;
+
+err_release_umem:
+	ib_umem_release(qp->raw_sq.umem);
 
 err_free_vport:
 	mana_ib_uncfg_vport(mdev, pd, port);
@@ -553,13 +566,25 @@ static int mana_ib_create_rc_qp(struct ib_qp *ibqp, struct ib_pd *ibpd,
 		if (i == MANA_RC_SEND_QUEUE_FMR) {
 			qp->rc_qp.queues[i].id = INVALID_QUEUE_ID;
 			qp->rc_qp.queues[i].gdma_region = GDMA_INVALID_DMA_REGION;
+			qp->rc_qp.queues[i].umem = NULL;
 			continue;
 		}
-		err = mana_ib_create_queue(mdev, ucmd.queue_buf[j], ucmd.queue_size[j],
-					   &qp->rc_qp.queues[i]);
+		qp->rc_qp.queues[i].umem = ib_umem_get(&mdev->ib_dev,
+						       ucmd.queue_buf[j],
+						       ucmd.queue_size[j],
+						       IB_ACCESS_LOCAL_WRITE);
+		if (IS_ERR(qp->rc_qp.queues[i].umem)) {
+			err = PTR_ERR(qp->rc_qp.queues[i].umem);
+			ibdev_err(&mdev->ib_dev, "Failed to get umem for queue %d, err %d\n",
+				  i, err);
+			goto release_umems;
+		}
+
+		err = mana_ib_create_queue(mdev, &qp->rc_qp.queues[i]);
 		if (err) {
 			ibdev_err(&mdev->ib_dev, "Failed to create queue %d, err %d\n", i, err);
-			goto destroy_queues;
+			ib_umem_release(qp->rc_qp.queues[i].umem);
+			goto release_umems;
 		}
 		j++;
 	}
@@ -597,6 +622,13 @@ destroy_qp:
 destroy_queues:
 	while (i-- > 0)
 		mana_ib_destroy_queue(mdev, &qp->rc_qp.queues[i]);
+	return err;
+
+release_umems:
+	while (i-- > 0) {
+		if (i != MANA_RC_SEND_QUEUE_FMR)
+			ib_umem_release(qp->rc_qp.queues[i].umem);
+	}
 	return err;
 }
 

@@ -31,11 +31,19 @@ struct ib_wq *mana_ib_create_wq(struct ib_pd *pd,
 
 	ibdev_dbg(&mdev->ib_dev, "ucmd wq_buf_addr 0x%llx\n", ucmd.wq_buf_addr);
 
-	err = mana_ib_create_queue(mdev, ucmd.wq_buf_addr, ucmd.wq_buf_size, &wq->queue);
+	wq->queue.umem = ib_umem_get(&mdev->ib_dev, ucmd.wq_buf_addr,
+				     ucmd.wq_buf_size, IB_ACCESS_LOCAL_WRITE);
+	if (IS_ERR(wq->queue.umem)) {
+		err = PTR_ERR(wq->queue.umem);
+		ibdev_dbg(&mdev->ib_dev, "Failed to get umem for create wq, %d\n", err);
+		goto err_free_wq;
+	}
+
+	err = mana_ib_create_queue(mdev, &wq->queue);
 	if (err) {
 		ibdev_dbg(&mdev->ib_dev,
 			  "Failed to create queue for create wq, %d\n", err);
-		goto err_free_wq;
+		goto err_release_umem;
 	}
 
 	wq->wqe = init_attr->max_wr;
@@ -43,6 +51,8 @@ struct ib_wq *mana_ib_create_wq(struct ib_pd *pd,
 	wq->rx_object = INVALID_MANA_HANDLE;
 	return &wq->ibwq;
 
+err_release_umem:
+	ib_umem_release(wq->queue.umem);
 err_free_wq:
 	kfree(wq);
 
