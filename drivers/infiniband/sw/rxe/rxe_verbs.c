@@ -1072,58 +1072,60 @@ static int rxe_post_recv(struct ib_qp *ibqp, const struct ib_recv_wr *wr,
 }
 
 /* cq */
-static int rxe_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-			 struct uverbs_attr_bundle *attrs)
+static int rxe_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+			      struct uverbs_attr_bundle *attrs)
 {
 	struct ib_udata *udata = &attrs->driver_udata;
 	struct ib_device *dev = ibcq->device;
 	struct rxe_dev *rxe = to_rdev(dev);
 	struct rxe_cq *cq = to_rcq(ibcq);
-	struct rxe_create_cq_resp __user *uresp = NULL;
-	int err, cleanup_err;
+	struct rxe_create_cq_resp __user *uresp;
+	int err;
 
-	if (udata) {
-		if (udata->outlen < sizeof(*uresp)) {
-			err = -EINVAL;
-			rxe_dbg_dev(rxe, "malformed udata, err = %d\n", err);
-			goto err_out;
-		}
-		uresp = udata->outbuf;
-	}
+	if (udata->outlen < sizeof(*uresp))
+		return -EINVAL;
 
-	if (attr->flags) {
-		err = -EOPNOTSUPP;
-		rxe_dbg_dev(rxe, "bad attr->flags, err = %d\n", err);
-		goto err_out;
-	}
+	uresp = udata->outbuf;
 
-	err = rxe_cq_chk_attr(rxe, NULL, attr->cqe, attr->comp_vector);
-	if (err) {
-		rxe_dbg_dev(rxe, "bad init attributes, err = %d\n", err);
-		goto err_out;
-	}
+	if (attr->flags || ibcq->umem)
+		return -EOPNOTSUPP;
+
+	if (attr->cqe > rxe->attr.max_cqe)
+		return -EINVAL;
 
 	err = rxe_add_to_pool(&rxe->cq_pool, cq);
-	if (err) {
-		rxe_dbg_dev(rxe, "unable to create cq, err = %d\n", err);
-		goto err_out;
-	}
+	if (err)
+		return err;
 
 	err = rxe_cq_from_init(rxe, cq, attr->cqe, attr->comp_vector, udata,
 			       uresp);
-	if (err) {
-		rxe_dbg_cq(cq, "create cq failed, err = %d\n", err);
-		goto err_cleanup;
-	}
+	if (err)
+		rxe_cleanup(cq);
+	return err;
+}
 
-	return 0;
+static int rxe_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+			 struct uverbs_attr_bundle *attrs)
+{
+	struct ib_device *dev = ibcq->device;
+	struct rxe_dev *rxe = to_rdev(dev);
+	struct rxe_cq *cq = to_rcq(ibcq);
+	int err;
 
-err_cleanup:
-	cleanup_err = rxe_cleanup(cq);
-	if (cleanup_err)
-		rxe_err_cq(cq, "cleanup failed, err = %d\n", cleanup_err);
-err_out:
-	rxe_err_dev(rxe, "returned err = %d\n", err);
+	if (attr->flags)
+		return -EOPNOTSUPP;
+
+	if (attr->cqe > rxe->attr.max_cqe)
+		return -EINVAL;
+
+	err = rxe_add_to_pool(&rxe->cq_pool, cq);
+	if (err)
+		return err;
+
+	err = rxe_cq_from_init(rxe, cq, attr->cqe, attr->comp_vector, NULL,
+			       NULL);
+	if (err)
+		rxe_cleanup(cq);
 	return err;
 }
 
@@ -1478,6 +1480,7 @@ static const struct ib_device_ops rxe_dev_ops = {
 	.attach_mcast = rxe_attach_mcast,
 	.create_ah = rxe_create_ah,
 	.create_cq = rxe_create_cq,
+	.create_user_cq = rxe_create_user_cq,
 	.create_qp = rxe_create_qp,
 	.create_srq = rxe_create_srq,
 	.create_user_ah = rxe_create_ah,
