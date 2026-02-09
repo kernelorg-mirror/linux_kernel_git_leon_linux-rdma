@@ -232,6 +232,7 @@ static const struct ib_device_ops siw_device_ops = {
 	.alloc_pd = siw_alloc_pd,
 	.alloc_ucontext = siw_alloc_ucontext,
 	.create_cq = siw_create_cq,
+	.create_user_cq = siw_create_user_cq,
 	.create_qp = siw_create_qp,
 	.create_srq = siw_create_srq,
 	.dealloc_driver = siw_device_cleanup,
