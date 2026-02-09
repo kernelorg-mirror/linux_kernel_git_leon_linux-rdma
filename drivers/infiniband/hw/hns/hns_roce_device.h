@@ -902,7 +902,6 @@ enum hns_roce_sw_dfx_stat_index {
 	HNS_ROCE_DFX_MBX_EVENT_CNT,
 	HNS_ROCE_DFX_QP_CREATE_ERR_CNT,
 	HNS_ROCE_DFX_QP_MODIFY_ERR_CNT,
-	HNS_ROCE_DFX_CQ_CREATE_ERR_CNT,
 	HNS_ROCE_DFX_CQ_MODIFY_ERR_CNT,
 	HNS_ROCE_DFX_SRQ_CREATE_ERR_CNT,
 	HNS_ROCE_DFX_SRQ_MODIFY_ERR_CNT,
@@ -1295,6 +1294,8 @@ int to_hr_qp_type(int qp_type);
 
 int hns_roce_create_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
 		       struct uverbs_attr_bundle *attrs);
+int hns_roce_create_user_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
+			    struct uverbs_attr_bundle *attrs);
 
 int hns_roce_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata);
 int hns_roce_db_map_user(struct hns_roce_ucontext *context, unsigned long virt,

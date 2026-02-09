@@ -47,7 +47,6 @@ static const char * const sw_stat_info[] = {
 	[HNS_ROCE_DFX_MBX_EVENT_CNT] = "mbx_event",
 	[HNS_ROCE_DFX_QP_CREATE_ERR_CNT] = "qp_create_err",
 	[HNS_ROCE_DFX_QP_MODIFY_ERR_CNT] = "qp_modify_err",
-	[HNS_ROCE_DFX_CQ_CREATE_ERR_CNT] = "cq_create_err",
 	[HNS_ROCE_DFX_CQ_MODIFY_ERR_CNT] = "cq_modify_err",
 	[HNS_ROCE_DFX_SRQ_CREATE_ERR_CNT] = "srq_create_err",
 	[HNS_ROCE_DFX_SRQ_MODIFY_ERR_CNT] = "srq_modify_err",
