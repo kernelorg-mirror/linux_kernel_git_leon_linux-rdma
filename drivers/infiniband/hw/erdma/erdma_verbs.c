@@ -1952,8 +1952,8 @@ err_out:
 	return -ENOMEM;
 }
 
-int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		    struct uverbs_attr_bundle *attrs)
+int erdma_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+			 struct uverbs_attr_bundle *attrs)
 {
 	struct ib_udata *udata = &attrs->driver_udata;
 	struct erdma_cq *cq = to_ecq(ibcq);
@@ -1962,6 +1962,11 @@ int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	int ret;
 	struct erdma_ucontext *ctx = rdma_udata_to_drv_context(
 		udata, struct erdma_ucontext, ibucontext);
+	struct erdma_ureq_create_cq ureq;
+	struct erdma_uresp_create_cq uresp;
+
+	if (ibcq->umem)
+		return -EOPNOTSUPP;
 
 	if (depth > dev->attrs.max_cqe)
 		return -EINVAL;
@@ -1977,31 +1982,22 @@ int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	if (ret < 0)
 		return ret;
 
-	if (!rdma_is_kernel_res(&ibcq->res)) {
-		struct erdma_ureq_create_cq ureq;
-		struct erdma_uresp_create_cq uresp;
+	ret = ib_copy_from_udata(&ureq, udata,
+				 min(udata->inlen, sizeof(ureq)));
+	if (ret)
+		goto err_out_xa;
 
-		ret = ib_copy_from_udata(&ureq, udata,
-					 min(udata->inlen, sizeof(ureq)));
-		if (ret)
-			goto err_out_xa;
+	ret = erdma_init_user_cq(ctx, cq, &ureq);
+	if (ret)
+		goto err_out_xa;
 
-		ret = erdma_init_user_cq(ctx, cq, &ureq);
-		if (ret)
-			goto err_out_xa;
+	uresp.cq_id = cq->cqn;
+	uresp.num_cqe = depth;
 
-		uresp.cq_id = cq->cqn;
-		uresp.num_cqe = depth;
-
-		ret = ib_copy_to_udata(udata, &uresp,
-				       min(sizeof(uresp), udata->outlen));
-		if (ret)
-			goto err_free_res;
-	} else {
-		ret = erdma_init_kernel_cq(cq);
-		if (ret)
-			goto err_out_xa;
-	}
+	ret = ib_copy_to_udata(udata, &uresp,
+			       min(sizeof(uresp), udata->outlen));
+	if (ret)
+		goto err_free_res;
 
 	ret = create_cq_cmd(ctx, cq);
 	if (ret)
@@ -2010,19 +2006,54 @@ int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	return 0;
 
 err_free_res:
-	if (!rdma_is_kernel_res(&ibcq->res)) {
-		erdma_unmap_user_dbrecords(ctx, &cq->user_cq.user_dbr_page);
-		put_mtt_entries(dev, &cq->user_cq.qbuf_mem);
-	} else {
-		dma_free_coherent(&dev->pdev->dev, depth << CQE_SHIFT,
-				  cq->kern_cq.qbuf, cq->kern_cq.qbuf_dma_addr);
-		dma_pool_free(dev->db_pool, cq->kern_cq.dbrec,
-			      cq->kern_cq.dbrec_dma);
-	}
+	erdma_unmap_user_dbrecords(ctx, &cq->user_cq.user_dbr_page);
+	put_mtt_entries(dev, &cq->user_cq.qbuf_mem);
 
 err_out_xa:
 	xa_erase(&dev->cq_xa, cq->cqn);
+	return ret;
+}
 
+int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+		    struct uverbs_attr_bundle *attrs)
+{
+	struct erdma_cq *cq = to_ecq(ibcq);
+	struct erdma_dev *dev = to_edev(ibcq->device);
+	unsigned int depth = attr->cqe;
+	int ret;
+
+	if (depth > dev->attrs.max_cqe)
+		return -EINVAL;
+
+	depth = roundup_pow_of_two(depth);
+	cq->ibcq.cqe = depth;
+	cq->depth = depth;
+	cq->assoc_eqn = attr->comp_vector + 1;
+
+	ret = xa_alloc_cyclic(&dev->cq_xa, &cq->cqn, cq,
+			      XA_LIMIT(1, dev->attrs.max_cq - 1),
+			      &dev->next_alloc_cqn, GFP_KERNEL);
+	if (ret < 0)
+		return ret;
+
+	ret = erdma_init_kernel_cq(cq);
+	if (ret)
+		goto err_out_xa;
+
+	ret = create_cq_cmd(NULL, cq);
+	if (ret)
+		goto err_free_res;
+
+	return 0;
+
+err_free_res:
+	dma_free_coherent(&dev->pdev->dev, depth << CQE_SHIFT,
+			  cq->kern_cq.qbuf, cq->kern_cq.qbuf_dma_addr);
+	dma_pool_free(dev->db_pool, cq->kern_cq.dbrec,
+		      cq->kern_cq.dbrec_dma);
+
+err_out_xa:
+	xa_erase(&dev->cq_xa, cq->cqn);
 	return ret;
 }
 

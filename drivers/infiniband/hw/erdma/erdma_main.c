@@ -505,6 +505,7 @@ static const struct ib_device_ops erdma_device_ops = {
 	.alloc_pd = erdma_alloc_pd,
 	.alloc_ucontext = erdma_alloc_ucontext,
 	.create_cq = erdma_create_cq,
+	.create_user_cq = erdma_create_user_cq,
 	.create_qp = erdma_create_qp,
 	.dealloc_pd = erdma_dealloc_pd,
 	.dealloc_ucontext = erdma_dealloc_ucontext,
