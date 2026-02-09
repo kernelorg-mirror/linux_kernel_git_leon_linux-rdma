@@ -1139,10 +1139,91 @@ int siw_destroy_cq(struct ib_cq *base_cq, struct ib_udata *udata)
  * @attrs: uverbs bundle
  */
 
+int siw_create_user_cq(struct ib_cq *base_cq, const struct ib_cq_init_attr *attr,
+		       struct uverbs_attr_bundle *attrs)
+{
+	struct ib_udata *udata = &attrs->driver_udata;
+	struct siw_device *sdev = to_siw_dev(base_cq->device);
+	struct siw_cq *cq = to_siw_cq(base_cq);
+	int rv, size = attr->cqe;
+
+	if (attr->flags || base_cq->umem)
+		return -EOPNOTSUPP;
+
+	if (atomic_inc_return(&sdev->num_cq) > SIW_MAX_CQ) {
+		siw_dbg(base_cq->device, "too many CQ's\n");
+		rv = -ENOMEM;
+		goto err_out;
+	}
+	if (attr->cqe > sdev->attrs.max_cqe) {
+		siw_dbg(base_cq->device, "CQ size error: %d\n", size);
+		rv = -EINVAL;
+		goto err_out;
+	}
+	size = roundup_pow_of_two(size);
+	cq->base_cq.cqe = size;
+	cq->num_cqe = size;
+
+	cq->queue = vmalloc_user(size * sizeof(struct siw_cqe) +
+				 sizeof(struct siw_cq_ctrl));
+	if (cq->queue == NULL) {
+		rv = -ENOMEM;
+		goto err_out;
+	}
+	get_random_bytes(&cq->id, 4);
+	siw_dbg(base_cq->device, "new CQ [%u]\n", cq->id);
+
+	spin_lock_init(&cq->lock);
+
+	cq->notify = (struct siw_cq_ctrl *)&cq->queue[size];
+
+	struct siw_uresp_create_cq uresp = {};
+	struct siw_ucontext *ctx =
+		rdma_udata_to_drv_context(udata, struct siw_ucontext,
+					  base_ucontext);
+	size_t length = size * sizeof(struct siw_cqe) +
+		sizeof(struct siw_cq_ctrl);
+
+	cq->cq_entry =
+		siw_mmap_entry_insert(ctx, cq->queue,
+				      length, &uresp.cq_key);
+	if (!cq->cq_entry) {
+		rv = -ENOMEM;
+		goto err_out;
+	}
+
+	uresp.cq_id = cq->id;
+	uresp.num_cqe = size;
+
+	if (udata->outlen < sizeof(uresp)) {
+		rv = -EINVAL;
+		goto err_out;
+	}
+	rv = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
+	if (rv)
+		goto err_out;
+
+	return 0;
+
+err_out:
+	siw_dbg(base_cq->device, "CQ creation failed: %d", rv);
+
+	if (cq->queue) {
+		struct siw_ucontext *ctx =
+			rdma_udata_to_drv_context(udata, struct siw_ucontext,
+						  base_ucontext);
+		if (ctx)
+			rdma_user_mmap_entry_remove(cq->cq_entry);
+		vfree(cq->queue);
+	}
+	atomic_dec(&sdev->num_cq);
+
+	return rv;
+}
+
 int siw_create_cq(struct ib_cq *base_cq, const struct ib_cq_init_attr *attr,
 		  struct uverbs_attr_bundle *attrs)
 {
-	struct ib_udata *udata = &attrs->driver_udata;
 	struct siw_device *sdev = to_siw_dev(base_cq->device);
 	struct siw_cq *cq = to_siw_cq(base_cq);
 	int rv, size = attr->cqe;
@@ -1164,13 +1245,8 @@ int siw_create_cq(struct ib_cq *base_cq, const struct ib_cq_init_attr *attr,
 	cq->base_cq.cqe = size;
 	cq->num_cqe = size;
 
-	if (udata)
-		cq->queue = vmalloc_user(size * sizeof(struct siw_cqe) +
-					 sizeof(struct siw_cq_ctrl));
-	else
-		cq->queue = vzalloc(size * sizeof(struct siw_cqe) +
-				    sizeof(struct siw_cq_ctrl));
-
+	cq->queue = vzalloc(size * sizeof(struct siw_cqe) +
+			    sizeof(struct siw_cq_ctrl));
 	if (cq->queue == NULL) {
 		rv = -ENOMEM;
 		goto err_out;
@@ -1182,46 +1258,13 @@ int siw_create_cq(struct ib_cq *base_cq, const struct ib_cq_init_attr *attr,
 
 	cq->notify = (struct siw_cq_ctrl *)&cq->queue[size];
 
-	if (udata) {
-		struct siw_uresp_create_cq uresp = {};
-		struct siw_ucontext *ctx =
-			rdma_udata_to_drv_context(udata, struct siw_ucontext,
-						  base_ucontext);
-		size_t length = size * sizeof(struct siw_cqe) +
-			sizeof(struct siw_cq_ctrl);
-
-		cq->cq_entry =
-			siw_mmap_entry_insert(ctx, cq->queue,
-					      length, &uresp.cq_key);
-		if (!cq->cq_entry) {
-			rv = -ENOMEM;
-			goto err_out;
-		}
-
-		uresp.cq_id = cq->id;
-		uresp.num_cqe = size;
-
-		if (udata->outlen < sizeof(uresp)) {
-			rv = -EINVAL;
-			goto err_out;
-		}
-		rv = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
-		if (rv)
-			goto err_out;
-	}
 	return 0;
 
 err_out:
 	siw_dbg(base_cq->device, "CQ creation failed: %d", rv);
 
-	if (cq->queue) {
-		struct siw_ucontext *ctx =
-			rdma_udata_to_drv_context(udata, struct siw_ucontext,
-						  base_ucontext);
-		if (ctx)
-			rdma_user_mmap_entry_remove(cq->cq_entry);
+	if (cq->queue)
 		vfree(cq->queue);
-	}
 	atomic_dec(&sdev->num_cq);
 
 	return rv;
