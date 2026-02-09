@@ -1292,8 +1292,7 @@ void hns_roce_qp_destroy(struct hns_roce_dev *hr_dev, struct hns_roce_qp *hr_qp,
 __be32 send_ieth(const struct ib_send_wr *wr);
 int to_hr_qp_type(int qp_type);
 
-int hns_roce_create_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
-		       struct uverbs_attr_bundle *attrs);
+int hns_roce_create_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr);
 int hns_roce_create_user_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
 			    struct uverbs_attr_bundle *attrs);
 

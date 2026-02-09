@@ -244,8 +244,7 @@ int bnxt_re_post_send(struct ib_qp *qp, const struct ib_send_wr *send_wr,
 		      const struct ib_send_wr **bad_send_wr);
 int bnxt_re_post_recv(struct ib_qp *qp, const struct ib_recv_wr *recv_wr,
 		      const struct ib_recv_wr **bad_recv_wr);
-int bnxt_re_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		      struct uverbs_attr_bundle *attrs);
+int bnxt_re_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr);
 int bnxt_re_create_user_cq(struct ib_cq *ibcq,
 			   const struct ib_cq_init_attr *attr,
 			   struct uverbs_attr_bundle *attrs);

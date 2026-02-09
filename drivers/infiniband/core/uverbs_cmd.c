@@ -1071,10 +1071,7 @@ static int create_cq(struct uverbs_attr_bundle *attrs,
 	rdma_restrack_new(&cq->res, RDMA_RESTRACK_CQ);
 	rdma_restrack_set_name(&cq->res, NULL);
 
-	if (ib_dev->ops.create_user_cq)
-		ret = ib_dev->ops.create_user_cq(cq, &attr, attrs);
-	else
-		ret = ib_dev->ops.create_cq(cq, &attr, attrs);
+	ret = ib_dev->ops.create_user_cq(cq, &attr, attrs);
 	if (ret)
 		goto err_free;
 	rdma_restrack_add(&cq->res);
@@ -3791,7 +3788,7 @@ const struct uapi_definition uverbs_def_write_intf[] = {
 				     UAPI_DEF_WRITE_UDATA_IO(
 					     struct ib_uverbs_create_cq,
 					     struct ib_uverbs_create_cq_resp),
-				     UAPI_DEF_METHOD_NEEDS_FN(create_cq)),
+				     UAPI_DEF_METHOD_NEEDS_FN(create_user_cq)),
 		DECLARE_UVERBS_WRITE(
 			IB_USER_VERBS_CMD_DESTROY_CQ,
 			ib_uverbs_destroy_cq,
@@ -3822,7 +3819,7 @@ const struct uapi_definition uverbs_def_write_intf[] = {
 					     reserved,
 					     struct ib_uverbs_ex_create_cq_resp,
 					     response_length),
-			UAPI_DEF_METHOD_NEEDS_FN(create_cq)),
+			UAPI_DEF_METHOD_NEEDS_FN(create_user_cq)),
 		DECLARE_UVERBS_WRITE_EX(
 			IB_USER_VERBS_EX_CMD_MODIFY_CQ,
 			ib_uverbs_ex_modify_cq,

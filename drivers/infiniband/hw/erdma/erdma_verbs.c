@@ -2014,8 +2014,7 @@ err_out_xa:
 	return ret;
 }
 
-int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		    struct uverbs_attr_bundle *attrs)
+int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr)
 {
 	struct erdma_cq *cq = to_ecq(ibcq);
 	struct erdma_dev *dev = to_edev(ibcq->device);

@@ -981,8 +981,7 @@ err1:
 	return rc;
 }
 
-int qedr_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		   struct uverbs_attr_bundle *attrs)
+int qedr_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr)
 {
 	struct ib_device *ibdev = ibcq->device;
 	struct qed_rdma_destroy_cq_out_params destroy_oparams;

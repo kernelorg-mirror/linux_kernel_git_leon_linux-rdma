@@ -1279,8 +1279,7 @@ err_resp:
 	return rc;
 }
 
-int ionic_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		    struct uverbs_attr_bundle *attrs)
+int ionic_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr)
 {
 	struct ionic_ibdev *dev = to_ionic_ibdev(ibcq->device);
 	struct ionic_vcq *vcq = to_ionic_vcq(ibcq);

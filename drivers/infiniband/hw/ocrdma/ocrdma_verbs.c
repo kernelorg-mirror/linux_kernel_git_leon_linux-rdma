@@ -1009,8 +1009,7 @@ ctx_err:
 	return status;
 }
 
-int ocrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		     struct uverbs_attr_bundle *attrs)
+int ocrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr)
 {
 	struct ib_device *ibdev = ibcq->device;
 	int entries = attr->cqe;

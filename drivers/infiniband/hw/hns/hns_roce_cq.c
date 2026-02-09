@@ -487,8 +487,7 @@ err_cq_buf:
 	return ret;
 }
 
-int hns_roce_create_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
-		       struct uverbs_attr_bundle *attrs)
+int hns_roce_create_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr)
 {
 	struct hns_roce_dev *hr_dev = to_hr_dev(ib_cq->device);
 	struct hns_roce_ib_create_cq_resp resp = {};

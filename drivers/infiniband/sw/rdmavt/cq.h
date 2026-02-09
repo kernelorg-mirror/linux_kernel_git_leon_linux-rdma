@@ -9,8 +9,7 @@
 #include <rdma/rdma_vt.h>
 #include <rdma/rdmavt_cq.h>
 
-int rvt_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		  struct uverbs_attr_bundle *attrs);
+int rvt_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr);
 int rvt_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		       struct uverbs_attr_bundle *attrs);
 int rvt_destroy_cq(struct ib_cq *ibcq, struct ib_udata *udata);

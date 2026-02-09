@@ -1104,8 +1104,7 @@ static int rxe_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *
 	return err;
 }
 
-static int rxe_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-			 struct uverbs_attr_bundle *attrs)
+static int rxe_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr)
 {
 	struct ib_device *dev = ibcq->device;
 	struct rxe_dev *rxe = to_rdev(dev);

@@ -93,8 +93,7 @@ err_destroy_queue:
 	return err;
 }
 
-int mana_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		      struct uverbs_attr_bundle *attrs)
+int mana_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr)
 {
 	struct mana_ib_cq *cq = container_of(ibcq, struct mana_ib_cq, ibcq);
 	struct ib_device *ibdev = ibcq->device;

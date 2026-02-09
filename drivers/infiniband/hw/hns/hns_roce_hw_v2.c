@@ -2919,7 +2919,7 @@ static struct ib_cq *free_mr_init_cq(struct hns_roce_dev *hr_dev)
 	cq = &hr_cq->ib_cq;
 	cq->device = ibdev;
 
-	if (hns_roce_create_cq(cq, &cq_init_attr, NULL)) {
+	if (hns_roce_create_cq(cq, &cq_init_attr)) {
 		ibdev_err(ibdev, "failed to create cq for free mr.\n");
 		kfree(hr_cq);
 		return NULL;

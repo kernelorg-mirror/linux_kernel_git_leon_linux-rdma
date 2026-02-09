@@ -2527,8 +2527,7 @@ struct ib_device_ops {
 	int (*query_qp)(struct ib_qp *qp, struct ib_qp_attr *qp_attr,
 			int qp_attr_mask, struct ib_qp_init_attr *qp_init_attr);
 	int (*destroy_qp)(struct ib_qp *qp, struct ib_udata *udata);
-	int (*create_cq)(struct ib_cq *cq, const struct ib_cq_init_attr *attr,
-			 struct uverbs_attr_bundle *attrs);
+	int (*create_cq)(struct ib_cq *cq, const struct ib_cq_init_attr *attr);
 	int (*create_user_cq)(struct ib_cq *cq,
 			      const struct ib_cq_init_attr *attr,
 			      struct uverbs_attr_bundle *attrs);

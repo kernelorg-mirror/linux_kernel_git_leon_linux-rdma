@@ -480,8 +480,7 @@ int ionic_map_mr_sg(struct ib_mr *ibmr, struct scatterlist *sg, int sg_nents,
 		    unsigned int *sg_offset);
 int ionic_alloc_mw(struct ib_mw *ibmw, struct ib_udata *udata);
 int ionic_dealloc_mw(struct ib_mw *ibmw);
-int ionic_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		    struct uverbs_attr_bundle *attrs);
+int ionic_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr);
 int ionic_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 			 struct uverbs_attr_bundle *attrs);
 int ionic_destroy_cq(struct ib_cq *ibcq, struct ib_udata *udata);

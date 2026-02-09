@@ -1012,8 +1012,7 @@ struct ib_mr *c4iw_get_dma_mr(struct ib_pd *pd, int acc);
 int c4iw_dereg_mr(struct ib_mr *ib_mr, struct ib_udata *udata);
 int c4iw_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata);
 void c4iw_cq_rem_ref(struct c4iw_cq *chp);
-int c4iw_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		   struct uverbs_attr_bundle *attrs);
+int c4iw_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr);
 int c4iw_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 			struct uverbs_attr_bundle *attrs);
 int c4iw_arm_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags);

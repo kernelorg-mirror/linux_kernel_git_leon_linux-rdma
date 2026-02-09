@@ -255,14 +255,12 @@ bail_wc:
  * rvt_create_cq - create a completion queue for kernel
  * @ibcq: Allocated CQ
  * @attr: creation attributes
- * @attrs: uverbs bundle
  *
  * Called by ib_create_cq() in the generic verbs code for kernel CQs.
  *
  * Return: 0 on success
  */
-int rvt_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		  struct uverbs_attr_bundle *attrs)
+int rvt_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr)
 {
 	struct ib_device *ibdev = ibcq->device;
 	struct rvt_dev_info *rdi = ib_to_rvt(ibdev);

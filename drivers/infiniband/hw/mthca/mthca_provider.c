@@ -642,8 +642,7 @@ err_unmap_set:
 }
 
 static int mthca_create_cq(struct ib_cq *ibcq,
-			   const struct ib_cq_init_attr *attr,
-			   struct uverbs_attr_bundle *attrs)
+			   const struct ib_cq_init_attr *attr)
 {
 	struct ib_device *ibdev = ibcq->device;
 	int entries = attr->cqe;

@@ -240,7 +240,7 @@ struct ib_cq *__ib_alloc_cq(struct ib_device *dev, void *private, int nr_cqe,
 	rdma_restrack_new(&cq->res, RDMA_RESTRACK_CQ);
 	rdma_restrack_set_name(&cq->res, caller);
 
-	ret = dev->ops.create_cq(cq, &cq_attr, NULL);
+	ret = dev->ops.create_cq(cq, &cq_attr);
 	if (ret)
 		goto out_free_wc;
 

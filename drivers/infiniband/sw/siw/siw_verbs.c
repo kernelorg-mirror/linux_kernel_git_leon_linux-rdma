@@ -1209,8 +1209,7 @@ err_inc:
 	return rv;
 }
 
-int siw_create_cq(struct ib_cq *base_cq, const struct ib_cq_init_attr *attr,
-		  struct uverbs_attr_bundle *attrs)
+int siw_create_cq(struct ib_cq *base_cq, const struct ib_cq_init_attr *attr)
 {
 	struct siw_device *sdev = to_siw_dev(base_cq->device);
 	struct siw_cq *cq = to_siw_cq(base_cq);

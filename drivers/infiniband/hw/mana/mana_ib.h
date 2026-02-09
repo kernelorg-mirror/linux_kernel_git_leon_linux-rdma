@@ -665,8 +665,7 @@ int mana_ib_cfg_vport(struct mana_ib_dev *dev, u32 port_id,
 void mana_ib_uncfg_vport(struct mana_ib_dev *dev, struct mana_ib_pd *pd,
 			 u32 port);
 
-int mana_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		      struct uverbs_attr_bundle *attrs);
+int mana_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr);
 int mana_ib_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 			   struct uverbs_attr_bundle *attrs);
 
