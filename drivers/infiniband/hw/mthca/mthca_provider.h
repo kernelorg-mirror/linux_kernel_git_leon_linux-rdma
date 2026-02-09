@@ -198,7 +198,6 @@ struct mthca_cq {
 	int			arm_sn;
 
 	wait_queue_head_t	wait;
-	struct mutex		mutex;
 };
 
 struct mthca_srq {
