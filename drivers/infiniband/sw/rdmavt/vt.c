@@ -333,6 +333,7 @@ static const struct ib_device_ops rvt_dev_ops = {
 	.attach_mcast = rvt_attach_mcast,
 	.create_ah = rvt_create_ah,
 	.create_cq = rvt_create_cq,
+	.create_user_cq = rvt_create_user_cq,
 	.create_qp = rvt_create_qp,
 	.create_srq = rvt_create_srq,
 	.create_user_ah = rvt_create_ah,
