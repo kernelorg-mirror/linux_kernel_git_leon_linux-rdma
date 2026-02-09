@@ -356,7 +356,7 @@ static const struct ib_device_ops usnic_dev_ops = {
 
 	.alloc_pd = usnic_ib_alloc_pd,
 	.alloc_ucontext = usnic_ib_alloc_ucontext,
-	.create_cq = usnic_ib_create_cq,
+	.create_user_cq = usnic_ib_create_user_cq,
 	.create_qp = usnic_ib_create_qp,
 	.dealloc_pd = usnic_ib_dealloc_pd,
 	.dealloc_ucontext = usnic_ib_dealloc_ucontext,

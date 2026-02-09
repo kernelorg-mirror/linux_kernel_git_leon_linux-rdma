@@ -576,10 +576,10 @@ out_unlock:
 	return status;
 }
 
-int usnic_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		       struct uverbs_attr_bundle *attrs)
+int usnic_ib_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+			    struct uverbs_attr_bundle *attrs)
 {
-	if (attr->flags)
+	if (attr->flags || ibcq->umem)
 		return -EOPNOTSUPP;
 
 	return 0;
