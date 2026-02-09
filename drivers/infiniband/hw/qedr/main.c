@@ -199,6 +199,7 @@ static const struct ib_device_ops qedr_dev_ops = {
 	.alloc_ucontext = qedr_alloc_ucontext,
 	.create_ah = qedr_create_ah,
 	.create_cq = qedr_create_cq,
+	.create_user_cq = qedr_create_user_cq,
 	.create_qp = qedr_create_qp,
 	.create_srq = qedr_create_srq,
 	.dealloc_pd = qedr_dealloc_pd,
