@@ -727,6 +727,7 @@ static const struct ib_device_ops hns_roce_dev_ops = {
 	.create_ah = hns_roce_create_ah,
 	.create_user_ah = hns_roce_create_ah,
 	.create_cq = hns_roce_create_cq,
+	.create_user_cq = hns_roce_create_user_cq,
 	.create_qp = hns_roce_create_qp,
 	.dealloc_pd = hns_roce_dealloc_pd,
 	.dealloc_ucontext = hns_roce_dealloc_ucontext,

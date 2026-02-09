@@ -335,7 +335,10 @@ static int verify_cq_create_attr(struct hns_roce_dev *hr_dev,
 {
 	struct ib_device *ibdev = &hr_dev->ib_dev;
 
-	if (!attr->cqe || attr->cqe > hr_dev->caps.max_cqes) {
+	if (attr->flags)
+		return -EOPNOTSUPP;
+
+	if (attr->cqe > hr_dev->caps.max_cqes) {
 		ibdev_err(ibdev, "failed to check CQ count %u, max = %u.\n",
 			  attr->cqe, hr_dev->caps.max_cqes);
 		return -EINVAL;
@@ -407,8 +410,8 @@ static int set_cqe_size(struct hns_roce_cq *hr_cq, struct ib_udata *udata,
 	return 0;
 }
 
-int hns_roce_create_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
-		       struct uverbs_attr_bundle *attrs)
+int hns_roce_create_user_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
+			    struct uverbs_attr_bundle *attrs)
 {
 	struct hns_roce_dev *hr_dev = to_hr_dev(ib_cq->device);
 	struct ib_udata *udata = &attrs->driver_udata;
@@ -418,31 +421,27 @@ int hns_roce_create_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
 	struct hns_roce_ib_create_cq ucmd = {};
 	int ret;
 
-	if (attr->flags) {
-		ret = -EOPNOTSUPP;
-		goto err_out;
-	}
+	if (ib_cq->umem)
+		return -EOPNOTSUPP;
 
 	ret = verify_cq_create_attr(hr_dev, attr);
 	if (ret)
-		goto err_out;
+		return ret;
 
-	if (udata) {
-		ret = get_cq_ucmd(hr_cq, udata, &ucmd);
-		if (ret)
-			goto err_out;
-	}
+	ret = get_cq_ucmd(hr_cq, udata, &ucmd);
+	if (ret)
+		return ret;
 
 	set_cq_param(hr_cq, attr->cqe, attr->comp_vector, &ucmd);
 
 	ret = set_cqe_size(hr_cq, udata, &ucmd);
 	if (ret)
-		goto err_out;
+		return ret;
 
 	ret = alloc_cq_buf(hr_dev, hr_cq, udata, ucmd.buf_addr);
 	if (ret) {
 		ibdev_err(ibdev, "failed to alloc CQ buf, ret = %d.\n", ret);
-		goto err_out;
+		return ret;
 	}
 
 	ret = alloc_cq_db(hr_dev, hr_cq, udata, ucmd.db_addr, &resp);
@@ -464,13 +463,11 @@ int hns_roce_create_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
 		goto err_cqn;
 	}
 
-	if (udata) {
-		resp.cqn = hr_cq->cqn;
-		ret = ib_copy_to_udata(udata, &resp,
-				       min(udata->outlen, sizeof(resp)));
-		if (ret)
-			goto err_cqc;
-	}
+	resp.cqn = hr_cq->cqn;
+	ret = ib_copy_to_udata(udata, &resp,
+			       min(udata->outlen, sizeof(resp)));
+	if (ret)
+		goto err_cqc;
 
 	hr_cq->cons_index = 0;
 	hr_cq->arm_sn = 1;
@@ -487,9 +484,67 @@ err_cq_db:
 	free_cq_db(hr_dev, hr_cq, udata);
 err_cq_buf:
 	free_cq_buf(hr_dev, hr_cq);
-err_out:
-	atomic64_inc(&hr_dev->dfx_cnt[HNS_ROCE_DFX_CQ_CREATE_ERR_CNT]);
+	return ret;
+}
 
+int hns_roce_create_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
+		       struct uverbs_attr_bundle *attrs)
+{
+	struct hns_roce_dev *hr_dev = to_hr_dev(ib_cq->device);
+	struct hns_roce_ib_create_cq_resp resp = {};
+	struct hns_roce_cq *hr_cq = to_hr_cq(ib_cq);
+	struct ib_device *ibdev = &hr_dev->ib_dev;
+	struct hns_roce_ib_create_cq ucmd = {};
+	int ret;
+
+	ret = verify_cq_create_attr(hr_dev, attr);
+	if (ret)
+		return ret;
+
+	set_cq_param(hr_cq, attr->cqe, attr->comp_vector, &ucmd);
+
+	ret = set_cqe_size(hr_cq, NULL, &ucmd);
+	if (ret)
+		return ret;
+
+	ret = alloc_cq_buf(hr_dev, hr_cq, NULL, 0);
+	if (ret) {
+		ibdev_err(ibdev, "failed to alloc CQ buf, ret = %d.\n", ret);
+		return ret;
+	}
+
+	ret = alloc_cq_db(hr_dev, hr_cq, NULL, 0, &resp);
+	if (ret) {
+		ibdev_err(ibdev, "failed to alloc CQ db, ret = %d.\n", ret);
+		goto err_cq_buf;
+	}
+
+	ret = alloc_cqn(hr_dev, hr_cq, NULL);
+	if (ret) {
+		ibdev_err(ibdev, "failed to alloc CQN, ret = %d.\n", ret);
+		goto err_cq_db;
+	}
+
+	ret = alloc_cqc(hr_dev, hr_cq);
+	if (ret) {
+		ibdev_err(ibdev,
+			  "failed to alloc CQ context, ret = %d.\n", ret);
+		goto err_cqn;
+	}
+
+	hr_cq->cons_index = 0;
+	hr_cq->arm_sn = 1;
+	refcount_set(&hr_cq->refcount, 1);
+	init_completion(&hr_cq->free);
+
+	return 0;
+
+err_cqn:
+	free_cqn(hr_dev, hr_cq->cqn);
+err_cq_db:
+	free_cq_db(hr_dev, hr_cq, NULL);
+err_cq_buf:
+	free_cq_buf(hr_dev, hr_cq);
 	return ret;
 }
 
