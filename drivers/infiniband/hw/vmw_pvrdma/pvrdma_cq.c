@@ -90,16 +90,9 @@ int pvrdma_req_notify_cq(struct ib_cq *ibcq,
 	return has_data;
 }
 
-/**
- * pvrdma_create_cq - create completion queue
- * @ibcq: Allocated CQ
- * @attr: completion queue attributes
- * @attrs: bundle
- *
- * @return: 0 on success
- */
-int pvrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		     struct uverbs_attr_bundle *attrs)
+int pvrdma_create_user_cq(struct ib_cq *ibcq,
+			  const struct ib_cq_init_attr *attr,
+			  struct uverbs_attr_bundle *attrs)
 {
 	struct ib_udata *udata = &attrs->driver_udata;
 	struct ib_device *ibdev = ibcq->device;
@@ -123,58 +116,48 @@ int pvrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	if (attr->flags)
 		return -EOPNOTSUPP;
 
-	entries = roundup_pow_of_two(entries);
-	if (entries < 1 || entries > dev->dsr->caps.max_cqe)
+	if (attr->cqe > dev->dsr->caps.max_cqe)
 		return -EINVAL;
+
+	entries = roundup_pow_of_two(entries);
 
 	if (!atomic_add_unless(&dev->num_cqs, 1, dev->dsr->caps.max_cq))
 		return -ENOMEM;
 
 	cq->ibcq.cqe = entries;
-	cq->is_kernel = !udata;
+	cq->is_kernel = false;
 
-	if (!cq->is_kernel) {
-		if (ib_copy_from_udata(&ucmd, udata, sizeof(ucmd))) {
-			ret = -EFAULT;
-			goto err_cq;
-		}
-
-		cq->umem = ib_umem_get(ibdev, ucmd.buf_addr, ucmd.buf_size,
-				       IB_ACCESS_LOCAL_WRITE);
-		if (IS_ERR(cq->umem)) {
-			ret = PTR_ERR(cq->umem);
-			goto err_cq;
-		}
-
-		npages = ib_umem_num_dma_blocks(cq->umem, PAGE_SIZE);
-	} else {
-		/* One extra page for shared ring state */
-		npages = 1 + (entries * sizeof(struct pvrdma_cqe) +
-			      PAGE_SIZE - 1) / PAGE_SIZE;
-
-		/* Skip header page. */
-		cq->offset = PAGE_SIZE;
+	if (ib_copy_from_udata(&ucmd, udata, sizeof(ucmd))) {
+		ret = -EFAULT;
+		goto err_cq;
 	}
+
+	if (!ibcq->umem)
+		ibcq->umem = ib_umem_get(ibdev, ucmd.buf_addr, ucmd.buf_size,
+					 IB_ACCESS_LOCAL_WRITE);
+	if (IS_ERR(ibcq->umem)) {
+		ret = PTR_ERR(ibcq->umem);
+		goto err_cq;
+	}
+
+	npages = ib_umem_num_dma_blocks(cq->umem, PAGE_SIZE);
 
 	if (npages < 0 || npages > PVRDMA_PAGE_DIR_MAX_PAGES) {
 		dev_warn(&dev->pdev->dev,
 			 "overflow pages in completion queue\n");
 		ret = -EINVAL;
-		goto err_umem;
+		goto err_cq;
 	}
 
-	ret = pvrdma_page_dir_init(dev, &cq->pdir, npages, cq->is_kernel);
+	ret = pvrdma_page_dir_init(dev, &cq->pdir, npages, false);
 	if (ret) {
 		dev_warn(&dev->pdev->dev,
 			 "could not allocate page directory\n");
-		goto err_umem;
+		goto err_cq;
 	}
 
 	/* Ring state is always the first page. Set in library for user cq. */
-	if (cq->is_kernel)
-		cq->ring_state = cq->pdir.pages[0];
-	else
-		pvrdma_page_dir_insert_umem(&cq->pdir, cq->umem, 0);
+	pvrdma_page_dir_insert_umem(&cq->pdir, cq->umem, 0);
 
 	refcount_set(&cq->refcnt, 1);
 	init_completion(&cq->free);
@@ -183,7 +166,7 @@ int pvrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	memset(cmd, 0, sizeof(*cmd));
 	cmd->hdr.cmd = PVRDMA_CMD_CREATE_CQ;
 	cmd->nchunks = npages;
-	cmd->ctx_handle = context ? context->ctx_handle : 0;
+	cmd->ctx_handle = context->ctx_handle;
 	cmd->cqe = entries;
 	cmd->pdir_dma = cq->pdir.dir_dma;
 	ret = pvrdma_cmd_post(dev, &req, &rsp, PVRDMA_CMD_CREATE_CQ_RESP);
@@ -200,24 +183,106 @@ int pvrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	dev->cq_tbl[cq->cq_handle % dev->dsr->caps.max_cq] = cq;
 	spin_unlock_irqrestore(&dev->cq_tbl_lock, flags);
 
-	if (!cq->is_kernel) {
-		cq->uar = &context->uar;
+	cq->uar = &context->uar;
 
-		/* Copy udata back. */
-		if (ib_copy_to_udata(udata, &cq_resp, sizeof(cq_resp))) {
-			dev_warn(&dev->pdev->dev,
-				 "failed to copy back udata\n");
-			pvrdma_destroy_cq(&cq->ibcq, udata);
-			return -EINVAL;
-		}
+	/* Copy udata back. */
+	if (ib_copy_to_udata(udata, &cq_resp, sizeof(cq_resp))) {
+		dev_warn(&dev->pdev->dev,
+			 "failed to copy back udata\n");
+		pvrdma_destroy_cq(&cq->ibcq, udata);
+		return -EINVAL;
 	}
 
 	return 0;
 
 err_page_dir:
 	pvrdma_page_dir_cleanup(dev, &cq->pdir);
-err_umem:
-	ib_umem_release(cq->umem);
+err_cq:
+	atomic_dec(&dev->num_cqs);
+	return ret;
+}
+
+int pvrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+		     struct uverbs_attr_bundle *attrs)
+{
+	struct ib_device *ibdev = ibcq->device;
+	int entries = attr->cqe;
+	struct pvrdma_dev *dev = to_vdev(ibdev);
+	struct pvrdma_cq *cq = to_vcq(ibcq);
+	int ret;
+	int npages;
+	unsigned long flags;
+	union pvrdma_cmd_req req;
+	union pvrdma_cmd_resp rsp;
+	struct pvrdma_cmd_create_cq *cmd = &req.create_cq;
+	struct pvrdma_cmd_create_cq_resp *resp = &rsp.create_cq_resp;
+
+	BUILD_BUG_ON(sizeof(struct pvrdma_cqe) != 64);
+
+	if (attr->flags)
+		return -EOPNOTSUPP;
+
+	if (attr->cqe > dev->dsr->caps.max_cqe)
+		return -EINVAL;
+	entries = roundup_pow_of_two(entries);
+
+	if (!atomic_add_unless(&dev->num_cqs, 1, dev->dsr->caps.max_cq))
+		return -ENOMEM;
+
+	cq->ibcq.cqe = entries;
+	cq->is_kernel = true;
+
+	/* One extra page for shared ring state */
+	npages = 1 + (entries * sizeof(struct pvrdma_cqe) +
+		      PAGE_SIZE - 1) / PAGE_SIZE;
+
+	/* Skip header page. */
+	cq->offset = PAGE_SIZE;
+
+	if (npages < 0 || npages > PVRDMA_PAGE_DIR_MAX_PAGES) {
+		dev_warn(&dev->pdev->dev,
+			 "overflow pages in completion queue\n");
+		ret = -EINVAL;
+		goto err_cq;
+	}
+
+	ret = pvrdma_page_dir_init(dev, &cq->pdir, npages, true);
+	if (ret) {
+		dev_warn(&dev->pdev->dev,
+			 "could not allocate page directory\n");
+		goto err_cq;
+	}
+
+	/* Ring state is always the first page. Set in library for user cq. */
+	cq->ring_state = cq->pdir.pages[0];
+
+	refcount_set(&cq->refcnt, 1);
+	init_completion(&cq->free);
+	spin_lock_init(&cq->cq_lock);
+
+	memset(cmd, 0, sizeof(*cmd));
+	cmd->hdr.cmd = PVRDMA_CMD_CREATE_CQ;
+	cmd->nchunks = npages;
+	cmd->ctx_handle = 0;
+	cmd->cqe = entries;
+	cmd->pdir_dma = cq->pdir.dir_dma;
+	ret = pvrdma_cmd_post(dev, &req, &rsp, PVRDMA_CMD_CREATE_CQ_RESP);
+	if (ret < 0) {
+		dev_warn(&dev->pdev->dev,
+			 "could not create completion queue, error: %d\n", ret);
+		goto err_page_dir;
+	}
+
+	cq->ibcq.cqe = resp->cqe;
+	cq->cq_handle = resp->cq_handle;
+	spin_lock_irqsave(&dev->cq_tbl_lock, flags);
+	dev->cq_tbl[cq->cq_handle % dev->dsr->caps.max_cq] = cq;
+	spin_unlock_irqrestore(&dev->cq_tbl_lock, flags);
+
+	return 0;
+
+err_page_dir:
+	pvrdma_page_dir_cleanup(dev, &cq->pdir);
 err_cq:
 	atomic_dec(&dev->num_cqs);
 	return ret;
@@ -228,8 +293,6 @@ static void pvrdma_free_cq(struct pvrdma_dev *dev, struct pvrdma_cq *cq)
 	if (refcount_dec_and_test(&cq->refcnt))
 		complete(&cq->free);
 	wait_for_completion(&cq->free);
-
-	ib_umem_release(cq->umem);
 
 	pvrdma_page_dir_cleanup(dev, &cq->pdir);
 }
