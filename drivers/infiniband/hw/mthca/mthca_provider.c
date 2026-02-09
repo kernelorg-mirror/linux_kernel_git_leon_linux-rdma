@@ -572,9 +572,9 @@ static int mthca_destroy_qp(struct ib_qp *qp, struct ib_udata *udata)
 	return 0;
 }
 
-static int mthca_create_cq(struct ib_cq *ibcq,
-			   const struct ib_cq_init_attr *attr,
-			   struct uverbs_attr_bundle *attrs)
+static int mthca_create_user_cq(struct ib_cq *ibcq,
+				const struct ib_cq_init_attr *attr,
+				struct uverbs_attr_bundle *attrs)
 {
 	struct ib_udata *udata = &attrs->driver_udata;
 	struct ib_device *ibdev = ibcq->device;
@@ -586,47 +586,41 @@ static int mthca_create_cq(struct ib_cq *ibcq,
 	struct mthca_ucontext *context = rdma_udata_to_drv_context(
 		udata, struct mthca_ucontext, ibucontext);
 
-	if (attr->flags)
+	if (attr->flags || ibcq->umem)
 		return -EOPNOTSUPP;
 
-	if (entries < 1 || entries > to_mdev(ibdev)->limits.max_cqes)
+	if (attr->cqe > to_mdev(ibdev)->limits.max_cqes)
 		return -EINVAL;
 
-	if (udata) {
-		if (ib_copy_from_udata(&ucmd, udata, sizeof(ucmd)))
-			return -EFAULT;
+	if (ib_copy_from_udata(&ucmd, udata, sizeof(ucmd)))
+		return -EFAULT;
 
-		err = mthca_map_user_db(to_mdev(ibdev), &context->uar,
-					context->db_tab, ucmd.set_db_index,
-					ucmd.set_db_page);
-		if (err)
-			return err;
+	err = mthca_map_user_db(to_mdev(ibdev), &context->uar,
+				context->db_tab, ucmd.set_db_index,
+				ucmd.set_db_page);
+	if (err)
+		return err;
 
-		err = mthca_map_user_db(to_mdev(ibdev), &context->uar,
-					context->db_tab, ucmd.arm_db_index,
-					ucmd.arm_db_page);
-		if (err)
-			goto err_unmap_set;
-	}
+	err = mthca_map_user_db(to_mdev(ibdev), &context->uar,
+				context->db_tab, ucmd.arm_db_index,
+				ucmd.arm_db_page);
+	if (err)
+		goto err_unmap_set;
 
 	cq = to_mcq(ibcq);
 
-	if (udata) {
-		cq->buf.mr.ibmr.lkey = ucmd.lkey;
-		cq->set_ci_db_index  = ucmd.set_db_index;
-		cq->arm_db_index     = ucmd.arm_db_index;
-	}
+	cq->buf.mr.ibmr.lkey = ucmd.lkey;
+	cq->set_ci_db_index  = ucmd.set_db_index;
+	cq->arm_db_index     = ucmd.arm_db_index;
 
 	for (nent = 1; nent <= entries; nent <<= 1)
 		; /* nothing */
 
-	err = mthca_init_cq(to_mdev(ibdev), nent, context,
-			    udata ? ucmd.pdn : to_mdev(ibdev)->driver_pd.pd_num,
-			    cq);
+	err = mthca_init_cq(to_mdev(ibdev), nent, context, ucmd.pdn, cq);
 	if (err)
 		goto err_unmap_arm;
 
-	if (udata && ib_copy_to_udata(udata, &cq->cqn, sizeof(__u32))) {
+	if (ib_copy_to_udata(udata, &cq->cqn, sizeof(__u32))) {
 		mthca_free_cq(to_mdev(ibdev), cq);
 		err = -EFAULT;
 		goto err_unmap_arm;
@@ -637,16 +631,45 @@ static int mthca_create_cq(struct ib_cq *ibcq,
 	return 0;
 
 err_unmap_arm:
-	if (udata)
-		mthca_unmap_user_db(to_mdev(ibdev), &context->uar,
-				    context->db_tab, ucmd.arm_db_index);
+	mthca_unmap_user_db(to_mdev(ibdev), &context->uar,
+			    context->db_tab, ucmd.arm_db_index);
 
 err_unmap_set:
-	if (udata)
-		mthca_unmap_user_db(to_mdev(ibdev), &context->uar,
-				    context->db_tab, ucmd.set_db_index);
+	mthca_unmap_user_db(to_mdev(ibdev), &context->uar,
+			    context->db_tab, ucmd.set_db_index);
 
 	return err;
+}
+
+static int mthca_create_cq(struct ib_cq *ibcq,
+			   const struct ib_cq_init_attr *attr,
+			   struct uverbs_attr_bundle *attrs)
+{
+	struct ib_device *ibdev = ibcq->device;
+	int entries = attr->cqe;
+	struct mthca_cq *cq;
+	int nent;
+	int err;
+
+	if (attr->flags)
+		return -EOPNOTSUPP;
+
+	if (attr->cqe > to_mdev(ibdev)->limits.max_cqes)
+		return -EINVAL;
+
+	cq = to_mcq(ibcq);
+
+	for (nent = 1; nent <= entries; nent <<= 1)
+		; /* nothing */
+
+	err = mthca_init_cq(to_mdev(ibdev), nent, NULL,
+			    to_mdev(ibdev)->driver_pd.pd_num, cq);
+	if (err)
+		return err;
+
+	cq->resize_buf = NULL;
+
+	return 0;
 }
 
 static int mthca_alloc_resize_buf(struct mthca_dev *dev, struct mthca_cq *cq,
@@ -1070,6 +1093,7 @@ static const struct ib_device_ops mthca_dev_ops = {
 	.attach_mcast = mthca_multicast_attach,
 	.create_ah = mthca_ah_create,
 	.create_cq = mthca_create_cq,
+	.create_user_cq = mthca_create_user_cq,
 	.create_qp = mthca_create_qp,
 	.dealloc_pd = mthca_dealloc_pd,
 	.dealloc_ucontext = mthca_dealloc_ucontext,
