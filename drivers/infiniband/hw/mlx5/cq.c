@@ -972,7 +972,6 @@ int mlx5_ib_create_user_cq(struct ib_cq *ibcq,
 		return -EINVAL;
 
 	cq->ibcq.cqe = entries - 1;
-	mutex_init(&cq->resize_mutex);
 	spin_lock_init(&cq->lock);
 	if (attr->flags & IB_UVERBS_CQ_FLAGS_TIMESTAMP_COMPLETION)
 		cq->private_flags |= MLX5_IB_CQ_PR_TIMESTAMP_COMPLETION;
@@ -1057,7 +1056,6 @@ int mlx5_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		return -EINVAL;
 
 	cq->ibcq.cqe = entries - 1;
-	mutex_init(&cq->resize_mutex);
 	spin_lock_init(&cq->lock);
 	INIT_LIST_HEAD(&cq->list_send_qp);
 	INIT_LIST_HEAD(&cq->list_recv_qp);
@@ -1284,10 +1282,9 @@ int mlx5_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	if (entries == ibcq->cqe + 1)
 		return 0;
 
-	mutex_lock(&cq->resize_mutex);
 	err = resize_user(dev, cq, entries, udata, &cqe_size);
 	if (err)
-		goto ex;
+		return err;
 
 	page_size = mlx5_umem_find_best_cq_quantized_pgoff(
 		cq->resize_umem, cqc, log_page_size, MLX5_ADAPTER_PAGE_SHIFT,
@@ -1339,7 +1336,6 @@ int mlx5_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	ib_umem_release(cq->ibcq.umem);
 	cq->ibcq.umem = cq->resize_umem;
 	cq->resize_umem = NULL;
-	mutex_unlock(&cq->resize_mutex);
 
 	kvfree(in);
 	return 0;
@@ -1350,8 +1346,6 @@ ex_alloc:
 ex_resize:
 	ib_umem_release(cq->resize_umem);
 	cq->resize_umem = NULL;
-ex:
-	mutex_unlock(&cq->resize_mutex);
 	return err;
 }
 
