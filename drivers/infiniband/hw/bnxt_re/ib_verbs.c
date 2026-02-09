@@ -3325,12 +3325,6 @@ int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 	rdev = cq->rdev;
 	dev_attr = rdev->dev_attr;
 
-	if (cq->resize_umem) {
-		ibdev_err(&rdev->ibdev, "Resize CQ %#x failed - Busy",
-			  cq->qplib_cq.id);
-		return -EBUSY;
-	}
-
 	/* Check the requested cq depth out of supported depth */
 	if (cqe > dev_attr->max_cq_wqes)
 		return -EINVAL;
