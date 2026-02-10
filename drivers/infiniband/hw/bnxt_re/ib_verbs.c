@@ -3512,6 +3512,7 @@ int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 	struct bnxt_re_cq *cq;
 	int rc;
 	u32 entries;
+	struct ib_umem *umem;
 
 	cq =  container_of(ibcq, struct bnxt_re_cq, ib_cq);
 	rdev = cq->rdev;
@@ -3525,21 +3526,15 @@ int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 	if (rc)
 		return rc;
 
-	cq->resize_umem = ib_umem_get(&rdev->ibdev, req.cq_va,
-				      entries * sizeof(struct cq_base),
-				      IB_ACCESS_LOCAL_WRITE);
-	if (IS_ERR(cq->resize_umem)) {
-		rc = PTR_ERR(cq->resize_umem);
-		ibdev_err(&rdev->ibdev, "%s: ib_umem_get failed! rc = %pe\n",
-			  __func__, cq->resize_umem);
-		cq->resize_umem = NULL;
-		return rc;
-	}
-	cq->resize_cqe = entries;
+	umem = ib_umem_get(&rdev->ibdev, req.cq_va,
+			   entries * sizeof(struct cq_base),
+			   IB_ACCESS_LOCAL_WRITE);
+	if (IS_ERR(umem))
+		return PTR_ERR(umem);
 	memcpy(&sg_info, &cq->qplib_cq.sg_info, sizeof(sg_info));
 	orig_dpi = cq->qplib_cq.dpi;
 
-	cq->qplib_cq.sg_info.umem = cq->resize_umem;
+	cq->qplib_cq.sg_info.umem = umem;
 	cq->qplib_cq.sg_info.pgsize = PAGE_SIZE;
 	cq->qplib_cq.sg_info.pgshft = PAGE_SHIFT;
 	cq->qplib_cq.dpi = &uctx->dpi;
@@ -3553,21 +3548,16 @@ int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 
 	bnxt_qplib_resize_cq_complete(&rdev->qplib_res, &cq->qplib_cq);
 
-	cq->qplib_cq.max_wqe = cq->resize_cqe;
+	cq->qplib_cq.max_wqe = entries;
 	ib_umem_release(cq->ib_cq.umem);
-	cq->ib_cq.umem = cq->resize_umem;
-	cq->resize_umem = NULL;
-	cq->resize_cqe = 0;
-
+	cq->ib_cq.umem = umem;
 	cq->ib_cq.cqe = entries;
 	atomic_inc(&rdev->stats.res.resize_count);
 
 	return ib_respond_empty_udata(udata);
 
 fail:
-	ib_umem_release(cq->resize_umem);
-	cq->resize_umem = NULL;
-	cq->resize_cqe = 0;
+	ib_umem_release(umem);
 	memcpy(&cq->qplib_cq.sg_info, &sg_info, sizeof(sg_info));
 	cq->qplib_cq.dpi = orig_dpi;
 	return rc;
