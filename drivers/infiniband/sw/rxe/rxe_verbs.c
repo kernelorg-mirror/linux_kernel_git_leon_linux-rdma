@@ -1139,7 +1139,8 @@ err_cleanup:
 	return err;
 }
 
-static int rxe_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
+static int rxe_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
+			 struct ib_udata *udata)
 {
 	struct rxe_cq *cq = to_rcq(ibcq);
 	struct rxe_dev *rxe = to_rdev(ibcq->device);
@@ -1150,9 +1151,9 @@ static int rxe_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
 		return -EINVAL;
 	uresp = udata->outbuf;
 
-	err = rxe_cq_chk_attr(rxe, cq, cqe, 0);
-	if (err)
-		return err;
+	if (cqe > rxe->attr.max_cqe ||
+	    cqe < queue_count(cq->queue, QUEUE_TYPE_TO_CLIENT))
+		return -EINVAL;
 
 	err = rxe_cq_resize_queue(cq, cqe, uresp, udata);
 	if (err)
