@@ -2012,7 +2012,7 @@ static int irdma_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
  * @entries: desired cq size
  * @udata: user data
  */
-static int irdma_resize_cq(struct ib_cq *ibcq, int entries,
+static int irdma_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 			   struct ib_udata *udata)
 {
 	struct irdma_resize_cq_req req = {};

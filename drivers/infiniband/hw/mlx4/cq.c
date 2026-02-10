@@ -350,14 +350,15 @@ err_buf:
 	return err;
 }
 
-int mlx4_ib_resize_cq(struct ib_cq *ibcq, int entries, struct ib_udata *udata)
+int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
+		      struct ib_udata *udata)
 {
 	struct mlx4_ib_dev *dev = to_mdev(ibcq->device);
 	struct mlx4_ib_cq *cq = to_mcq(ibcq);
 	struct mlx4_mtt mtt;
 	int err;
 
-	if (entries < 1 || entries > dev->dev->caps.max_cqes)
+	if (entries > dev->dev->caps.max_cqes)
 		return -EINVAL;
 
 	entries = roundup_pow_of_two(entries + 1);
