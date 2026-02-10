@@ -293,67 +293,17 @@ err_db:
 	return err;
 }
 
-static int mlx4_alloc_resize_umem(struct mlx4_ib_dev *dev, struct mlx4_ib_cq *cq,
-				   int entries, struct ib_udata *udata)
-{
-	struct mlx4_ib_resize_cq ucmd;
-	int cqe_size = dev->dev->caps.cqe_size;
-	int shift;
-	int n;
-	int err;
-
-	if (ib_copy_from_udata(&ucmd, udata, sizeof ucmd))
-		return -EFAULT;
-
-	cq->resize_buf = kmalloc(sizeof *cq->resize_buf, GFP_KERNEL);
-	if (!cq->resize_buf)
-		return -ENOMEM;
-
-	cq->resize_umem = ib_umem_get(&dev->ib_dev, ucmd.buf_addr,
-				      entries * cqe_size,
-				      IB_ACCESS_LOCAL_WRITE);
-	if (IS_ERR(cq->resize_umem)) {
-		err = PTR_ERR(cq->resize_umem);
-		goto err_buf;
-	}
-
-	shift = mlx4_ib_umem_calc_optimal_mtt_size(cq->resize_umem, 0, &n);
-	if (shift < 0) {
-		err = shift;
-		goto err_umem;
-	}
-
-	err = mlx4_mtt_init(dev->dev, n, shift, &cq->resize_buf->buf.mtt);
-	if (err)
-		goto err_umem;
-
-	err = mlx4_ib_umem_write_mtt(dev, &cq->resize_buf->buf.mtt,
-				     cq->resize_umem);
-	if (err)
-		goto err_mtt;
-
-	cq->resize_buf->cqe = entries - 1;
-
-	return 0;
-
-err_mtt:
-	mlx4_mtt_cleanup(dev->dev, &cq->resize_buf->buf.mtt);
-
-err_umem:
-	ib_umem_release(cq->resize_umem);
-	cq->resize_umem = NULL;
-err_buf:
-	kfree(cq->resize_buf);
-	cq->resize_buf = NULL;
-	return err;
-}
-
 int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 		      struct ib_udata *udata)
 {
 	struct mlx4_ib_dev *dev = to_mdev(ibcq->device);
 	struct mlx4_ib_cq *cq = to_mcq(ibcq);
+	struct mlx4_ib_resize_cq ucmd;
+	int cqe_size = dev->dev->caps.cqe_size;
+	struct ib_umem *umem;
 	struct mlx4_mtt mtt;
+	int shift;
+	int n;
 	int err;
 
 	if (entries > dev->dev->caps.max_cqes)
@@ -366,34 +316,59 @@ int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	if (entries > dev->dev->caps.max_cqes + 1)
 		return -EINVAL;
 
-	err = mlx4_alloc_resize_umem(dev, cq, entries, udata);
+	if (ib_copy_from_udata(&ucmd, udata, sizeof ucmd))
+		return -EFAULT;
+
+	cq->resize_buf = kmalloc(sizeof *cq->resize_buf, GFP_KERNEL);
+	if (!cq->resize_buf)
+		return -ENOMEM;
+
+	umem = ib_umem_get(&dev->ib_dev, ucmd.buf_addr,
+			   entries * cqe_size, IB_ACCESS_LOCAL_WRITE);
+	if (IS_ERR(umem)) {
+		err = PTR_ERR(umem);
+		goto err_buf;
+	}
+
+	shift = mlx4_ib_umem_calc_optimal_mtt_size(umem, 0, &n);
+	if (shift < 0) {
+		err = shift;
+		goto err_umem;
+	}
+
+	err = mlx4_mtt_init(dev->dev, n, shift, &cq->resize_buf->buf.mtt);
 	if (err)
-		return err;
+		goto err_umem;
+
+	err = mlx4_ib_umem_write_mtt(dev, &cq->resize_buf->buf.mtt, umem);
+	if (err)
+		goto err_mtt;
+
+	cq->resize_buf->cqe = entries - 1;
+
 	mtt = cq->buf.mtt;
 
 	err = mlx4_cq_resize(dev->dev, &cq->mcq, entries, &cq->resize_buf->buf.mtt);
 	if (err)
-		goto err_buf;
+		goto err_mtt;
 
 	mlx4_mtt_cleanup(dev->dev, &mtt);
 	cq->buf = cq->resize_buf->buf;
 	cq->ibcq.cqe = cq->resize_buf->cqe;
 	ib_umem_release(cq->ibcq.umem);
-	cq->ibcq.umem = cq->resize_umem;
+	cq->ibcq.umem = umem;
 
 	kfree(cq->resize_buf);
 	cq->resize_buf = NULL;
-	cq->resize_umem = NULL;
 	return 0;
 
-
-err_buf:
+err_mtt:
 	mlx4_mtt_cleanup(dev->dev, &cq->resize_buf->buf.mtt);
-	kfree(cq->resize_buf);
-	cq->resize_buf = NULL;
 
-	ib_umem_release(cq->resize_umem);
-	cq->resize_umem = NULL;
+err_umem:
+	ib_umem_release(umem);
+err_buf:
+	kfree(cq->resize_buf);
 	return err;
 }
 
