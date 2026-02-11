@@ -1218,44 +1218,13 @@ int mlx5_ib_modify_cq(struct ib_cq *cq, u16 cq_count, u16 cq_period)
 	return err;
 }
 
-static int resize_user(struct mlx5_ib_dev *dev, struct mlx5_ib_cq *cq,
-		       int entries, struct ib_udata *udata,
-		       int *cqe_size)
-{
-	struct mlx5_ib_resize_cq ucmd;
-	struct ib_umem *umem;
-	int err;
-
-	err = ib_copy_from_udata(&ucmd, udata, sizeof(ucmd));
-	if (err)
-		return err;
-
-	if (ucmd.reserved0 || ucmd.reserved1)
-		return -EINVAL;
-
-	/* check multiplication overflow */
-	if (ucmd.cqe_size && SIZE_MAX / ucmd.cqe_size <= entries - 1)
-		return -EINVAL;
-
-	umem = ib_umem_get(&dev->ib_dev, ucmd.buf_addr,
-			   (size_t)ucmd.cqe_size * entries,
-			   IB_ACCESS_LOCAL_WRITE);
-	if (IS_ERR(umem)) {
-		err = PTR_ERR(umem);
-		return err;
-	}
-
-	cq->resize_umem = umem;
-	*cqe_size = ucmd.cqe_size;
-
-	return 0;
-}
-
 int mlx5_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 		      struct ib_udata *udata)
 {
 	struct mlx5_ib_dev *dev = to_mdev(ibcq->device);
 	struct mlx5_ib_cq *cq = to_mcq(ibcq);
+	struct mlx5_ib_resize_cq ucmd;
+	struct ib_umem *umem;
 	unsigned long page_size;
 	void *cqc;
 	u32 *in;
@@ -1264,8 +1233,8 @@ int mlx5_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	__be64 *pas;
 	unsigned int page_offset_quantized = 0;
 	unsigned int page_shift;
+	size_t umem_size;
 	int inlen;
-	int cqe_size;
 
 	if (entries > (1 << MLX5_CAP_GEN(dev->mdev, log_max_cq_sz)))
 		return -EINVAL;
@@ -1277,18 +1246,29 @@ int mlx5_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	if (entries == ibcq->cqe + 1)
 		return 0;
 
-	err = resize_user(dev, cq, entries, udata, &cqe_size);
+	err = ib_copy_from_udata(&ucmd, udata, sizeof(ucmd));
 	if (err)
 		return err;
 
+	if (ucmd.reserved0 || ucmd.reserved1)
+		return -EINVAL;
+
+	if (check_mul_overflow(ucmd.cqe_size, entries, &umem_size))
+		return -EINVAL;
+
+	umem = ib_umem_get(&dev->ib_dev, ucmd.buf_addr, umem_size,
+			   IB_ACCESS_LOCAL_WRITE);
+	if (IS_ERR(umem))
+		return PTR_ERR(umem);
+
 	page_size = mlx5_umem_find_best_cq_quantized_pgoff(
-		cq->resize_umem, cqc, log_page_size, MLX5_ADAPTER_PAGE_SHIFT,
+		umem, cqc, log_page_size, MLX5_ADAPTER_PAGE_SHIFT,
 		page_offset, 64, &page_offset_quantized);
 	if (!page_size) {
 		err = -EINVAL;
 		goto ex_resize;
 	}
-	npas = ib_umem_num_dma_blocks(cq->resize_umem, page_size);
+	npas = ib_umem_num_dma_blocks(umem, page_size);
 	page_shift = order_base_2(page_size);
 
 	inlen = MLX5_ST_SZ_BYTES(modify_cq_in) +
@@ -1301,7 +1281,7 @@ int mlx5_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	}
 
 	pas = (__be64 *)MLX5_ADDR_OF(modify_cq_in, in, pas);
-	mlx5_ib_populate_pas(cq->resize_umem, 1UL << page_shift, pas, 0);
+	mlx5_ib_populate_pas(umem, 1UL << page_shift, pas, 0);
 
 	MLX5_SET(modify_cq_in, in,
 		 modify_field_select_resize_field_select.resize_field_select.resize_field_select,
@@ -1315,7 +1295,7 @@ int mlx5_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 		 page_shift - MLX5_ADAPTER_PAGE_SHIFT);
 	MLX5_SET(cqc, cqc, page_offset, page_offset_quantized);
 	MLX5_SET(cqc, cqc, cqe_sz,
-		 cqe_sz_to_mlx_sz(cqe_size,
+		 cqe_sz_to_mlx_sz(ucmd.cqe_size,
 				  cq->private_flags &
 				  MLX5_IB_CQ_PR_FLAGS_CQE_128_PAD));
 	MLX5_SET(cqc, cqc, log_cq_size, ilog2(entries));
@@ -1329,8 +1309,7 @@ int mlx5_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 
 	cq->ibcq.cqe = entries - 1;
 	ib_umem_release(cq->ibcq.umem);
-	cq->ibcq.umem = cq->resize_umem;
-	cq->resize_umem = NULL;
+	cq->ibcq.umem = umem;
 
 	kvfree(in);
 	return 0;
@@ -1339,8 +1318,7 @@ ex_alloc:
 	kvfree(in);
 
 ex_resize:
-	ib_umem_release(cq->resize_umem);
-	cq->resize_umem = NULL;
+	ib_umem_release(umem);
 	return err;
 }
 
