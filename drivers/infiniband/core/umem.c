@@ -169,7 +169,7 @@ struct ib_umem *ib_umem_get(struct ib_device *device, unsigned long addr,
 	unsigned long lock_limit;
 	unsigned long new_pinned;
 	unsigned long cur_base;
-	unsigned long dma_attr = 0;
+	unsigned long dma_attr = DMA_ATTR_CPU_CACHE_OVERLAP;
 	struct mm_struct *mm;
 	unsigned long npages;
 	int pinned, ret;
