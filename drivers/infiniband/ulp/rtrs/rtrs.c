@@ -229,7 +229,7 @@ static bool is_pollqueue(struct rtrs_con *con)
 	return con->cid >= con->path->irq_con_num;
 }
 
-static int create_cq(struct rtrs_con *con, int cq_vector, int nr_cqe,
+static int create_cq(struct rtrs_con *con, int cq_vector, unsigned int nr_cqe,
 		     enum ib_poll_context poll_ctx)
 {
 	struct rdma_cm_id *cm_id = con->cm_id;
@@ -294,9 +294,9 @@ static void destroy_cq(struct rtrs_con *con)
 }
 
 int rtrs_cq_qp_create(struct rtrs_path *path, struct rtrs_con *con,
-		       u32 max_send_sge, int cq_vector, int nr_cqe,
-		       u32 max_send_wr, u32 max_recv_wr,
-		       enum ib_poll_context poll_ctx)
+		      u32 max_send_sge, int cq_vector, unsigned int nr_cqe,
+		      u32 max_send_wr, u32 max_recv_wr,
+		      enum ib_poll_context poll_ctx)
 {
 	int err;
 

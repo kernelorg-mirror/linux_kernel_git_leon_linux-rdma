@@ -1648,7 +1648,8 @@ static void destroy_con(struct rtrs_clt_con *con)
 static int create_con_cq_qp(struct rtrs_clt_con *con)
 {
 	struct rtrs_clt_path *clt_path = to_clt_path(con->c.path);
-	u32 max_send_wr, max_recv_wr, cq_num, max_send_sge, wr_limit;
+	u32 max_send_wr, max_recv_wr, max_send_sge, wr_limit;
+	unsigned int cq_num;
 	int err, cq_vector;
 	struct rtrs_msg_rkey_rsp *rsp;
 

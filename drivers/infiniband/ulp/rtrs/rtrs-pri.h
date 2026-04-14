@@ -94,7 +94,7 @@ struct rtrs_con {
 	struct ib_cq		*cq;
 	struct rdma_cm_id	*cm_id;
 	unsigned int		cid;
-	int                     nr_cqe;
+	unsigned int            nr_cqe;
 	atomic_t		wr_cnt;
 	atomic_t		sq_wr_avail;
 };
@@ -323,7 +323,7 @@ int rtrs_iu_post_rdma_write_imm(struct rtrs_con *con, struct rtrs_iu *iu,
 int rtrs_post_recv_empty(struct rtrs_con *con, struct ib_cqe *cqe);
 
 int rtrs_cq_qp_create(struct rtrs_path *path, struct rtrs_con *con,
-		      u32 max_send_sge, int cq_vector, int nr_cqe,
+		      u32 max_send_sge, int cq_vector, unsigned int nr_cqe,
 		      u32 max_send_wr, u32 max_recv_wr,
 		      enum ib_poll_context poll_ctx);
 void rtrs_cq_qp_destroy(struct rtrs_con *con);

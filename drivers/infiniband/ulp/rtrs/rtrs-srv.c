@@ -1708,8 +1708,8 @@ static int create_con(struct rtrs_srv_path *srv_path,
 	struct rtrs_srv_sess *srv = srv_path->srv;
 	struct rtrs_path *s = &srv_path->s;
 	struct rtrs_srv_con *con;
-
-	u32 cq_num, max_send_wr, max_recv_wr, wr_limit;
+	unsigned int cq_num;
+	u32 max_send_wr, max_recv_wr, wr_limit;
 	int err, cq_vector;
 
 	con = kzalloc_obj(*con);
