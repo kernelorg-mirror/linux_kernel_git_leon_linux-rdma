@@ -191,7 +191,7 @@ TRACE_EVENT(cq_modify,
 TRACE_EVENT(cq_alloc,
 	TP_PROTO(
 		const struct ib_cq *cq,
-		int nr_cqe,
+		unsigned int nr_cqe,
 		int comp_vector,
 		enum ib_poll_context poll_ctx
 	),
@@ -200,7 +200,7 @@ TRACE_EVENT(cq_alloc,
 
 	TP_STRUCT__entry(
 		__field(u32, cq_id)
-		__field(int, nr_cqe)
+		__field(unsigned int, nr_cqe)
 		__field(int, comp_vector)
 		__field(unsigned long, poll_ctx)
 	),
@@ -212,7 +212,7 @@ TRACE_EVENT(cq_alloc,
 		__entry->poll_ctx = poll_ctx;
 	),
 
-	TP_printk("cq.id=%u nr_cqe=%d comp_vector=%d poll_ctx=%s",
+	TP_printk("cq.id=%u nr_cqe=%u comp_vector=%d poll_ctx=%s",
 		__entry->cq_id, __entry->nr_cqe, __entry->comp_vector,
 		rdma_show_ib_poll_ctx(__entry->poll_ctx)
 	)
@@ -220,7 +220,7 @@ TRACE_EVENT(cq_alloc,
 
 TRACE_EVENT(cq_alloc_error,
 	TP_PROTO(
-		int nr_cqe,
+		unsigned int nr_cqe,
 		int comp_vector,
 		enum ib_poll_context poll_ctx,
 		int rc
@@ -230,7 +230,7 @@ TRACE_EVENT(cq_alloc_error,
 
 	TP_STRUCT__entry(
 		__field(int, rc)
-		__field(int, nr_cqe)
+		__field(unsigned int, nr_cqe)
 		__field(int, comp_vector)
 		__field(unsigned long, poll_ctx)
 	),
@@ -242,7 +242,7 @@ TRACE_EVENT(cq_alloc_error,
 		__entry->poll_ctx = poll_ctx;
 	),
 
-	TP_printk("nr_cqe=%d comp_vector=%d poll_ctx=%s rc=%d",
+	TP_printk("nr_cqe=%u comp_vector=%d poll_ctx=%s rc=%d",
 		__entry->nr_cqe, __entry->comp_vector,
 		rdma_show_ib_poll_ctx(__entry->poll_ctx), __entry->rc
 	)

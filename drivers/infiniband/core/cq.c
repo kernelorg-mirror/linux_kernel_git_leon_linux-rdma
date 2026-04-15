@@ -209,9 +209,9 @@ static void ib_cq_completion_workqueue(struct ib_cq *cq, void *private)
  * specified context. The ULP must use wr->wr_cqe instead of wr->wr_id
  * to use this CQ abstraction.
  */
-struct ib_cq *__ib_alloc_cq(struct ib_device *dev, void *private, int nr_cqe,
-			    int comp_vector, enum ib_poll_context poll_ctx,
-			    const char *caller)
+struct ib_cq *__ib_alloc_cq(struct ib_device *dev, void *private,
+			    unsigned int nr_cqe, int comp_vector,
+			    enum ib_poll_context poll_ctx, const char *caller)
 {
 	struct ib_cq_init_attr cq_attr = {
 		.cqe		= nr_cqe,
@@ -298,7 +298,8 @@ EXPORT_SYMBOL(__ib_alloc_cq);
  * vectors. A simple best-effort mechanism is used.
  */
 struct ib_cq *__ib_alloc_cq_any(struct ib_device *dev, void *private,
-				int nr_cqe, enum ib_poll_context poll_ctx,
+				unsigned int nr_cqe,
+				enum ib_poll_context poll_ctx,
 				const char *caller)
 {
 	static atomic_t counter;

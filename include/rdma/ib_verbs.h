@@ -4049,11 +4049,11 @@ static inline int ib_post_recv(struct ib_qp *qp,
 	return qp->device->ops.post_recv(qp, recv_wr, bad_recv_wr ? : &dummy);
 }
 
-struct ib_cq *__ib_alloc_cq(struct ib_device *dev, void *private, int nr_cqe,
-			    int comp_vector, enum ib_poll_context poll_ctx,
-			    const char *caller);
+struct ib_cq *__ib_alloc_cq(struct ib_device *dev, void *private,
+			    unsigned int nr_cqe, int comp_vector,
+			    enum ib_poll_context poll_ctx, const char *caller);
 static inline struct ib_cq *ib_alloc_cq(struct ib_device *dev, void *private,
-					int nr_cqe, int comp_vector,
+					unsigned int nr_cqe, int comp_vector,
 					enum ib_poll_context poll_ctx)
 {
 	return __ib_alloc_cq(dev, private, nr_cqe, comp_vector, poll_ctx,
@@ -4061,7 +4061,8 @@ static inline struct ib_cq *ib_alloc_cq(struct ib_device *dev, void *private,
 }
 
 struct ib_cq *__ib_alloc_cq_any(struct ib_device *dev, void *private,
-				int nr_cqe, enum ib_poll_context poll_ctx,
+				unsigned int nr_cqe,
+				enum ib_poll_context poll_ctx,
 				const char *caller);
 
 /**
@@ -4072,7 +4073,7 @@ struct ib_cq *__ib_alloc_cq_any(struct ib_device *dev, void *private,
  * @poll_ctx: Context used for polling the CQ
  */
 static inline struct ib_cq *ib_alloc_cq_any(struct ib_device *dev,
-					    void *private, int nr_cqe,
+					    void *private, unsigned int nr_cqe,
 					    enum ib_poll_context poll_ctx)
 {
 	return __ib_alloc_cq_any(dev, private, nr_cqe, poll_ctx,
