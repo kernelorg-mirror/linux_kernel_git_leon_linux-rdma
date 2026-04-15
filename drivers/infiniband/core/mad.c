@@ -72,12 +72,12 @@ static void create_mad_addr_info(struct ib_mad_send_wr_private *mad_send_wr,
 }
 #endif
 
-static int mad_sendq_size = IB_MAD_QP_SEND_SIZE;
-static int mad_recvq_size = IB_MAD_QP_RECV_SIZE;
+static unsigned int mad_sendq_size = IB_MAD_QP_SEND_SIZE;
+static unsigned int mad_recvq_size = IB_MAD_QP_RECV_SIZE;
 
-module_param_named(send_queue_size, mad_sendq_size, int, 0444);
+module_param_named(send_queue_size, mad_sendq_size, uint, 0444);
 MODULE_PARM_DESC(send_queue_size, "Size of send queue in number of work requests");
-module_param_named(recv_queue_size, mad_recvq_size, int, 0444);
+module_param_named(recv_queue_size, mad_recvq_size, uint, 0444);
 MODULE_PARM_DESC(recv_queue_size, "Size of receive queue in number of work requests");
 
 static DEFINE_XARRAY_ALLOC1(ib_mad_clients);
@@ -3194,10 +3194,10 @@ static void destroy_mad_qp(struct ib_mad_qp_info *qp_info)
 static int ib_mad_port_open(struct ib_device *device,
 			    u32 port_num)
 {
-	int ret, cq_size;
 	struct ib_mad_port_private *port_priv;
+	unsigned int cq_size;
 	unsigned long flags;
-	int has_smi;
+	int ret, has_smi;
 
 	if (WARN_ON(rdma_max_mad_size(device, port_num) < IB_MGMT_MAD_SIZE))
 		return -EFAULT;
@@ -3396,11 +3396,10 @@ static struct ib_client mad_client = {
 
 int ib_mad_init(void)
 {
-	mad_recvq_size = min(mad_recvq_size, IB_MAD_QP_MAX_SIZE);
-	mad_recvq_size = max(mad_recvq_size, IB_MAD_QP_MIN_SIZE);
-
-	mad_sendq_size = min(mad_sendq_size, IB_MAD_QP_MAX_SIZE);
-	mad_sendq_size = max(mad_sendq_size, IB_MAD_QP_MIN_SIZE);
+	mad_recvq_size =
+		clamp(mad_recvq_size, IB_MAD_QP_MIN_SIZE, IB_MAD_QP_MAX_SIZE);
+	mad_sendq_size =
+		clamp(mad_sendq_size, IB_MAD_QP_MIN_SIZE, IB_MAD_QP_MAX_SIZE);
 
 	INIT_LIST_HEAD(&ib_mad_port_list);
 
