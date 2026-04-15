@@ -530,7 +530,7 @@ static int srp_create_ch_ib(struct srp_rdma_ch *ch)
 	struct ib_cq *recv_cq, *send_cq;
 	struct ib_qp *qp;
 	struct srp_fr_pool *fr_pool = NULL;
-	const int m = 1 + dev->use_fast_reg * target->mr_per_cmd * 2;
+	const unsigned int m = 1 + dev->use_fast_reg * target->mr_per_cmd * 2;
 	int ret;
 
 	init_attr = kzalloc_obj(*init_attr);

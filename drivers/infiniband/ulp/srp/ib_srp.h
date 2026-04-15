@@ -228,7 +228,7 @@ struct srp_target_port {
 	unsigned int		target_can_queue;
 	int			mr_pool_size;
 	int			mr_per_cmd;
-	int			queue_size;
+	unsigned int		queue_size;
 	int			comp_vector;
 	int			tl_retry_count;
 
