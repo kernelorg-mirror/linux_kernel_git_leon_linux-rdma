@@ -96,7 +96,7 @@ struct nvme_rdma_queue {
 	int			cm_error;
 	struct completion	cm_done;
 	bool			pi_support;
-	int			cq_size;
+	unsigned int		cq_size;
 	struct mutex		queue_lock;
 };
 
