@@ -173,8 +173,8 @@ struct p9_fd_opts {
 struct p9_rdma_opts {
 	short port;
 	bool privport;
-	int sq_depth;
-	int rq_depth;
+	unsigned int sq_depth;
+	unsigned int rq_depth;
 	long timeout;
 };
 

@@ -76,9 +76,9 @@ struct p9_trans_rdma {
 	long timeout;
 	bool privport;
 	u16 port;
-	int sq_depth;
+	unsigned int sq_depth;
 	struct semaphore sq_sem;
-	int rq_depth;
+	unsigned int rq_depth;
 	struct semaphore rq_sem;
 	atomic_t excess_rc;
 	struct sockaddr_in addr;
