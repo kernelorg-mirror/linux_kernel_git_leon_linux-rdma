@@ -3383,10 +3383,6 @@ int bnxt_re_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *att
 	if (attr->flags)
 		return -EOPNOTSUPP;
 
-	/* Validate CQ fields */
-	if (attr->cqe > dev_attr->max_cq_wqes)
-		return -EINVAL;
-
 	cq->rdev = rdev;
 	cctx = rdev->chip_ctx;
 	cq->qplib_cq.cq_handle = (u64)(unsigned long)(&cq->qplib_cq);
@@ -3461,16 +3457,11 @@ int bnxt_re_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 {
 	struct bnxt_re_cq *cq = container_of(ibcq, struct bnxt_re_cq, ib_cq);
 	struct bnxt_re_dev *rdev = to_bnxt_re_dev(ibcq->device, ibdev);
-	struct bnxt_qplib_dev_attr *dev_attr = rdev->dev_attr;
 	int rc;
 	u32 active_cqs;
 
 	if (attr->flags)
 		return -EOPNOTSUPP;
-
-	/* Validate CQ fields */
-	if (attr->cqe > dev_attr->max_cq_wqes)
-		return -EINVAL;
 
 	cq->rdev = rdev;
 	cq->qplib_cq.cq_handle = (u64)(unsigned long)(&cq->qplib_cq);
@@ -3549,10 +3540,6 @@ int bnxt_re_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
 			  cq->qplib_cq.id);
 		return -EBUSY;
 	}
-
-	/* Check the requested cq depth out of supported depth */
-	if (cqe > dev_attr->max_cq_wqes)
-		return -EINVAL;
 
 	uctx = rdma_udata_to_drv_context(udata, struct bnxt_re_ucontext, ib_uctx);
 	entries = bnxt_re_init_depth(cqe + 1, dev_attr->max_cq_wqes + 1, uctx);
