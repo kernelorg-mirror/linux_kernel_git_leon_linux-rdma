@@ -414,7 +414,7 @@ struct ib_device_attr {
 	int			max_recv_sge;
 	int			max_sge_rd;
 	int			max_cq;
-	int			max_cqe;
+	u32			max_cqe;
 	int			max_mr;
 	int			max_pd;
 	int			max_qp_rd_atom;

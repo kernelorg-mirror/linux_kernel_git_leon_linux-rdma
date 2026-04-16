@@ -566,7 +566,7 @@ struct mlx4_caps {
 	int			max_srq_sge;
 	int			reserved_srqs;
 	int			num_cqs;
-	int			max_cqes;
+	u32			max_cqes;
 	int			reserved_cqs;
 	int			num_sys_eqs;
 	int			num_eqs;

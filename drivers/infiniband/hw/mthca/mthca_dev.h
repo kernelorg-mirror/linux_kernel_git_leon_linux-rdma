@@ -152,7 +152,7 @@ struct mthca_limits {
 	int      num_eecs;
 	int      reserved_eecs;
 	int      num_cqs;
-	int      max_cqes;
+	u32      max_cqes;
 	int      reserved_cqs;
 	int      num_eqs;
 	int      reserved_eqs;

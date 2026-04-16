@@ -2135,7 +2135,7 @@ static struct smbd_connection *_smbd_get_connection(
 
 	if (sp->send_credit_target > sc->ib.dev->attrs.max_cqe ||
 	    sp->send_credit_target > sc->ib.dev->attrs.max_qp_wr) {
-		log_rdma_event(ERR, "consider lowering send_credit_target = %d. Possible CQE overrun, device reporting max_cqe %d max_qp_wr %d\n",
+		log_rdma_event(ERR, "consider lowering send_credit_target = %d. Possible CQE overrun, device reporting max_cqe %u max_qp_wr %d\n",
 			       sp->send_credit_target,
 			       sc->ib.dev->attrs.max_cqe,
 			       sc->ib.dev->attrs.max_qp_wr);
@@ -2144,7 +2144,7 @@ static struct smbd_connection *_smbd_get_connection(
 
 	if (sp->recv_credit_max > sc->ib.dev->attrs.max_cqe ||
 	    sp->recv_credit_max > sc->ib.dev->attrs.max_qp_wr) {
-		log_rdma_event(ERR, "consider lowering receive_credit_max = %d. Possible CQE overrun, device reporting max_cqe %d max_qp_wr %d\n",
+		log_rdma_event(ERR, "consider lowering receive_credit_max = %d. Possible CQE overrun, device reporting max_cqe %u max_qp_wr %d\n",
 			       sp->recv_credit_max,
 			       sc->ib.dev->attrs.max_cqe,
 			       sc->ib.dev->attrs.max_qp_wr);

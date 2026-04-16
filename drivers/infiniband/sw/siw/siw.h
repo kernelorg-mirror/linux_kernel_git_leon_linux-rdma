@@ -57,7 +57,7 @@ struct siw_dev_cap {
 	int max_sge;
 	int max_sge_rd;
 	int max_cq;
-	int max_cqe;
+	u32 max_cqe;
 	int max_mr;
 	int max_pd;
 	int max_mw;
