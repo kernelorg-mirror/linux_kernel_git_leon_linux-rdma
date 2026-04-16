@@ -239,8 +239,7 @@ int efa_query_device(struct ib_device *ibdev,
 	props->max_mr = dev_attr->max_mr;
 	props->max_ah = dev_attr->max_ah;
 	props->max_cqe = dev_attr->max_cq_depth;
-	props->max_qp_wr = min_t(u32, dev_attr->max_sq_depth,
-				 dev_attr->max_rq_depth);
+	props->max_qp_wr = min(dev_attr->max_sq_depth, dev_attr->max_rq_depth);
 	props->max_send_sge = dev_attr->max_sq_sge;
 	props->max_recv_sge = dev_attr->max_rq_sge;
 	props->max_sge_rd = dev_attr->max_wr_rdma_sge;
