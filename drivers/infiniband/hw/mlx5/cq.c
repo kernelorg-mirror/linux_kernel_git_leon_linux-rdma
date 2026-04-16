@@ -949,7 +949,7 @@ int mlx5_ib_create_user_cq(struct ib_cq *ibcq,
 {
 	struct ib_udata *udata = &attrs->driver_udata;
 	struct ib_device *ibdev = ibcq->device;
-	int entries = attr->cqe;
+	unsigned int entries = attr->cqe;
 	int vector = attr->comp_vector;
 	struct mlx5_ib_dev *dev = to_mdev(ibdev);
 	struct mlx5_ib_cq *cq = to_mcq(ibcq);
@@ -962,14 +962,11 @@ int mlx5_ib_create_user_cq(struct ib_cq *ibcq,
 	int eqn;
 	int err;
 
-	if (attr->cqe > (1 << MLX5_CAP_GEN(dev->mdev, log_max_cq_sz)))
-		return -EINVAL;
-
 	if (check_cq_create_flags(attr->flags))
 		return -EOPNOTSUPP;
 
 	entries = roundup_pow_of_two(entries + 1);
-	if (entries > (1 << MLX5_CAP_GEN(dev->mdev, log_max_cq_sz)))
+	if (entries > (ibdev->attrs.max_cqe + 1))
 		return -EINVAL;
 
 	cq->ibcq.cqe = entries - 1;
@@ -1037,7 +1034,7 @@ int mlx5_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		      struct uverbs_attr_bundle *attrs)
 {
 	struct ib_device *ibdev = ibcq->device;
-	int entries = attr->cqe;
+	unsigned int entries = attr->cqe;
 	int vector = attr->comp_vector;
 	struct mlx5_ib_dev *dev = to_mdev(ibdev);
 	struct mlx5_ib_cq *cq = to_mcq(ibcq);
@@ -1050,11 +1047,8 @@ int mlx5_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	int eqn;
 	int err;
 
-	if (attr->cqe > (1 << MLX5_CAP_GEN(dev->mdev, log_max_cq_sz)))
-		return -EINVAL;
-
 	entries = roundup_pow_of_two(entries + 1);
-	if (entries > (1 << MLX5_CAP_GEN(dev->mdev, log_max_cq_sz)))
+	if (entries > (ibdev->attrs.max_cqe + 1))
 		return -EINVAL;
 
 	cq->ibcq.cqe = entries - 1;
@@ -1352,11 +1346,8 @@ int mlx5_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 		return -ENOSYS;
 	}
 
-	if (entries > (1 << MLX5_CAP_GEN(dev->mdev, log_max_cq_sz)))
-		return -EINVAL;
-
 	entries = roundup_pow_of_two(entries + 1);
-	if (entries > (1 << MLX5_CAP_GEN(dev->mdev, log_max_cq_sz)) + 1)
+	if (entries > (ibcq->device->attrs.max_cqe + 1))
 		return -EINVAL;
 
 	if (entries == ibcq->cqe + 1)
