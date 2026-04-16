@@ -88,7 +88,7 @@ static int UVERBS_HANDLER(UVERBS_METHOD_CQ_CREATE)(
 		return ret;
 
 	ret = uverbs_copy_from(&attr.cqe, attrs, UVERBS_ATTR_CREATE_CQ_CQE);
-	if (ret || !attr.cqe)
+	if (ret || !attr.cqe || attr.cqe > ib_dev->attrs.max_cqe)
 		return ret ? : -EINVAL;
 
 	ret = uverbs_copy_from(&user_handle, attrs,

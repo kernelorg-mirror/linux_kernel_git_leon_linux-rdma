@@ -1028,6 +1028,11 @@ static int create_cq(struct uverbs_attr_bundle *attrs,
 	if (IS_ERR(obj))
 		return PTR_ERR(obj);
 
+	if (cmd->cqe > ib_dev->attrs.max_cqe) {
+		ret = -EINVAL;
+		goto err;
+	}
+
 	if (cmd->comp_channel >= 0) {
 		ev_file = ib_uverbs_lookup_comp_file(cmd->comp_channel, attrs);
 		if (IS_ERR(ev_file)) {
@@ -1144,6 +1149,11 @@ static int ib_uverbs_resize_cq(struct uverbs_attr_bundle *attrs)
 	cq = uobj_get_obj_read(cq, UVERBS_OBJECT_CQ, cmd.cq_handle, attrs);
 	if (IS_ERR(cq))
 		return PTR_ERR(cq);
+
+	if (cmd.cqe > cq->device->attrs.max_cqe) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	ret = cq->device->ops.resize_user_cq(cq, cmd.cqe, &attrs->driver_udata);
 	if (ret)

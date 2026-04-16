@@ -2199,7 +2199,7 @@ struct ib_cq *__ib_create_cq(struct ib_device *device,
 	struct ib_cq *cq;
 	int ret;
 
-	if (WARN_ON_ONCE(!cq_attr->cqe))
+	if (WARN_ON_ONCE(!cq_attr->cqe || cq_attr->cqe > device->attrs.max_cqe))
 		return ERR_PTR(-EINVAL);
 
 	cq = rdma_zalloc_drv_obj(device, ib_cq);
