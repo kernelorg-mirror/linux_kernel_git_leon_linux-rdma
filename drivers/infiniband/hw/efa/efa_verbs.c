@@ -1132,14 +1132,6 @@ int efa_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	if (attr->flags)
 		return -EOPNOTSUPP;
 
-	if (entries > dev->dev_attr.max_cq_depth) {
-		ibdev_dbg(ibdev,
-			  "cq: requested entries[%u] greater than max[%u]\n",
-			  entries, dev->dev_attr.max_cq_depth);
-		err = -EINVAL;
-		goto err_out;
-	}
-
 	err = ib_copy_validate_udata_in_cm(udata, cmd, num_sub_cqs, 0);
 	if (err)
 		goto err_out;
