@@ -98,7 +98,8 @@ int mlx4_ib_modify_cq(struct ib_cq *cq, u16 cq_count, u16 cq_period)
 	return mlx4_cq_modify(dev->dev, &mcq->mcq, cq_count, cq_period);
 }
 
-static int mlx4_ib_alloc_cq_buf(struct mlx4_ib_dev *dev, struct mlx4_ib_cq_buf *buf, int nent)
+static int mlx4_ib_alloc_cq_buf(struct mlx4_ib_dev *dev,
+				struct mlx4_ib_cq_buf *buf, unsigned int nent)
 {
 	int err;
 
@@ -130,7 +131,8 @@ out:
 	return err;
 }
 
-static void mlx4_ib_free_cq_buf(struct mlx4_ib_dev *dev, struct mlx4_ib_cq_buf *buf, int cqe)
+static void mlx4_ib_free_cq_buf(struct mlx4_ib_dev *dev,
+				struct mlx4_ib_cq_buf *buf, unsigned int cqe)
 {
 	mlx4_buf_free(dev->dev, (cqe + 1) * buf->entry_size, &buf->buf);
 }
@@ -142,7 +144,7 @@ int mlx4_ib_create_user_cq(struct ib_cq *ibcq,
 {
 	struct ib_udata *udata = &attrs->driver_udata;
 	struct ib_device *ibdev = ibcq->device;
-	int entries = attr->cqe;
+	unsigned int entries = attr->cqe;
 	int vector = attr->comp_vector;
 	struct mlx4_ib_dev *dev = to_mdev(ibdev);
 	struct mlx4_ib_cq *cq = to_mcq(ibcq);
@@ -154,9 +156,6 @@ int mlx4_ib_create_user_cq(struct ib_cq *ibcq,
 	int err;
 	struct mlx4_ib_ucontext *context = rdma_udata_to_drv_context(
 		udata, struct mlx4_ib_ucontext, ibucontext);
-
-	if (attr->cqe > dev->dev->caps.max_cqes)
-		return -EINVAL;
 
 	if (attr->flags & ~CQ_CREATE_FLAGS_SUPPORTED)
 		return -EINVAL;
@@ -244,17 +243,14 @@ int mlx4_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		      struct uverbs_attr_bundle *attrs)
 {
 	struct ib_device *ibdev = ibcq->device;
-	int entries = attr->cqe;
+	unsigned int entries = attr->cqe;
 	int vector = attr->comp_vector;
 	struct mlx4_ib_dev *dev = to_mdev(ibdev);
 	struct mlx4_ib_cq *cq = to_mcq(ibcq);
 	void *buf_addr;
 	int err;
 
-	if (attr->cqe > dev->dev->caps.max_cqes)
-		return -EINVAL;
-
-	entries      = roundup_pow_of_two(entries + 1);
+	entries = roundup_pow_of_two(entries + 1);
 	cq->ibcq.cqe = entries - 1;
 	mutex_init(&cq->resize_mutex);
 	spin_lock_init(&cq->lock);
@@ -300,7 +296,7 @@ err_db:
 }
 
 static int mlx4_alloc_resize_buf(struct mlx4_ib_dev *dev, struct mlx4_ib_cq *cq,
-				  int entries)
+				  unsigned int entries)
 {
 	int err;
 
@@ -324,7 +320,7 @@ static int mlx4_alloc_resize_buf(struct mlx4_ib_dev *dev, struct mlx4_ib_cq *cq,
 }
 
 static int mlx4_alloc_resize_umem(struct mlx4_ib_dev *dev, struct mlx4_ib_cq *cq,
-				   int entries, struct ib_udata *udata)
+				   unsigned int entries, struct ib_udata *udata)
 {
 	struct mlx4_ib_resize_cq ucmd;
 	int cqe_size = dev->dev->caps.cqe_size;
@@ -425,19 +421,12 @@ int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	struct mlx4_ib_cq *cq = to_mcq(ibcq);
 	struct mlx4_mtt mtt;
 	int outst_cqe;
-	int err;
+	int err = 0;
 
 	mutex_lock(&cq->resize_mutex);
-	if (entries > dev->dev->caps.max_cqes) {
-		err = -EINVAL;
-		goto out;
-	}
-
 	entries = roundup_pow_of_two(entries + 1);
-	if (entries == ibcq->cqe + 1) {
-		err = 0;
+	if (entries == ibcq->cqe + 1)
 		goto out;
-	}
 
 	if (entries > dev->dev->caps.max_cqes + 1) {
 		err = -EINVAL;
@@ -479,7 +468,7 @@ int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 		cq->resize_umem = NULL;
 	} else {
 		struct mlx4_ib_cq_buf tmp_buf;
-		int tmp_cqe = 0;
+		unsigned int tmp_cqe = 0;
 
 		spin_lock_irq(&cq->lock);
 		if (cq->resize_buf) {
