@@ -98,7 +98,6 @@ struct efa_mr {
 
 struct efa_cq {
 	struct ib_cq ibcq;
-	struct efa_ucontext *ucontext;
 	dma_addr_t dma_addr;
 	void *cpu_addr;
 	struct rdma_user_mmap_entry *mmap_entry;

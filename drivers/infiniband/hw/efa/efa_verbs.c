@@ -1080,11 +1080,12 @@ static struct efa_eq *efa_vec2eq(struct efa_dev *dev, int vec)
 }
 
 static int cq_mmap_entries_setup(struct efa_dev *dev, struct efa_cq *cq,
+				 struct ib_ucontext *ibucontext,
 				 struct efa_ibv_create_cq_resp *resp,
 				 bool db_valid)
 {
 	resp->q_mmap_size = cq->size;
-	cq->mmap_entry = efa_user_mmap_entry_insert(&cq->ucontext->ibucontext,
+	cq->mmap_entry = efa_user_mmap_entry_insert(ibucontext,
 						    virt_to_phys(cq->cpu_addr),
 						    cq->size, EFA_MMAP_DMA_PAGE,
 						    &resp->q_mmap_key);
@@ -1093,7 +1094,7 @@ static int cq_mmap_entries_setup(struct efa_dev *dev, struct efa_cq *cq,
 
 	if (db_valid) {
 		cq->db_mmap_entry =
-			efa_user_mmap_entry_insert(&cq->ucontext->ibucontext,
+			efa_user_mmap_entry_insert(ibucontext,
 						   dev->db_bar_addr + resp->db_off,
 						   PAGE_SIZE, EFA_MMAP_IO_NC,
 						   &resp->db_mmap_key);
@@ -1160,7 +1161,6 @@ int efa_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		goto err_out;
 	}
 
-	cq->ucontext = ucontext;
 	cq->size = PAGE_ALIGN(cmd.cq_entry_size * entries * cmd.num_sub_cqs);
 
 	if (ibcq->umem) {
@@ -1186,7 +1186,7 @@ int efa_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		}
 	}
 
-	params.uarn = cq->ucontext->uarn;
+	params.uarn = ucontext->uarn;
 	params.sub_cq_depth = entries;
 	params.dma_addr = cq->dma_addr;
 	params.entry_size_in_bytes = cmd.cq_entry_size;
@@ -1209,7 +1209,8 @@ int efa_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	WARN_ON_ONCE(entries != result.actual_depth);
 
 	if (cq->cpu_addr)
-		err = cq_mmap_entries_setup(dev, cq, &resp, result.db_valid);
+		err = cq_mmap_entries_setup(dev, cq, &ucontext->ibucontext,
+					    &resp, result.db_valid);
 
 	if (err) {
 		ibdev_dbg(ibdev, "Could not setup cq[%u] mmap entries\n",
