@@ -428,11 +428,6 @@ int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	if (entries == ibcq->cqe + 1)
 		goto out;
 
-	if (entries > dev->dev->caps.max_cqes + 1) {
-		err = -EINVAL;
-		goto out;
-	}
-
 	if (ibcq->uobject) {
 		err = mlx4_alloc_resize_umem(dev, cq, entries, udata);
 		if (err)
