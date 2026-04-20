@@ -295,30 +295,6 @@ err_db:
 	return err;
 }
 
-static int mlx4_alloc_resize_buf(struct mlx4_ib_dev *dev, struct mlx4_ib_cq *cq,
-				  unsigned int entries)
-{
-	int err;
-
-	if (cq->resize_buf)
-		return -EBUSY;
-
-	cq->resize_buf = kmalloc_obj(*cq->resize_buf);
-	if (!cq->resize_buf)
-		return -ENOMEM;
-
-	err = mlx4_ib_alloc_cq_buf(dev, &cq->resize_buf->buf, entries);
-	if (err) {
-		kfree(cq->resize_buf);
-		cq->resize_buf = NULL;
-		return err;
-	}
-
-	cq->resize_buf->cqe = entries - 1;
-
-	return 0;
-}
-
 static int mlx4_alloc_resize_umem(struct mlx4_ib_dev *dev, struct mlx4_ib_cq *cq,
 				   unsigned int entries, struct ib_udata *udata)
 {
@@ -327,9 +303,6 @@ static int mlx4_alloc_resize_umem(struct mlx4_ib_dev *dev, struct mlx4_ib_cq *cq
 	int shift;
 	int n;
 	int err;
-
-	if (cq->resize_umem)
-		return -EBUSY;
 
 	err = ib_copy_validate_udata_in(udata, ucmd, buf_addr);
 	if (err)
@@ -371,47 +344,11 @@ err_mtt:
 
 err_umem:
 	ib_umem_release(cq->resize_umem);
-
+	cq->resize_umem = NULL;
 err_buf:
 	kfree(cq->resize_buf);
 	cq->resize_buf = NULL;
 	return err;
-}
-
-static int mlx4_ib_get_outstanding_cqes(struct mlx4_ib_cq *cq)
-{
-	u32 i;
-
-	i = cq->mcq.cons_index;
-	while (get_sw_cqe(cq, i))
-		++i;
-
-	return i - cq->mcq.cons_index;
-}
-
-static void mlx4_ib_cq_resize_copy_cqes(struct mlx4_ib_cq *cq)
-{
-	struct mlx4_cqe *cqe, *new_cqe;
-	int i;
-	int cqe_size = cq->buf.entry_size;
-	int cqe_inc = cqe_size == 64 ? 1 : 0;
-
-	i = cq->mcq.cons_index;
-	cqe = get_cqe(cq, i & cq->ibcq.cqe);
-	cqe += cqe_inc;
-
-	while ((cqe->owner_sr_opcode & MLX4_CQE_OPCODE_MASK) != MLX4_CQE_OPCODE_RESIZE) {
-		new_cqe = get_cqe_from_buf(&cq->resize_buf->buf,
-					   (i + 1) & cq->resize_buf->cqe);
-		memcpy(new_cqe, get_cqe(cq, i & cq->ibcq.cqe), cqe_size);
-		new_cqe += cqe_inc;
-
-		new_cqe->owner_sr_opcode = (cqe->owner_sr_opcode & ~MLX4_CQE_OWNER_MASK) |
-			(((i + 1) & (cq->resize_buf->cqe + 1)) ? MLX4_CQE_OWNER_MASK : 0);
-		cqe = get_cqe(cq, ++i & cq->ibcq.cqe);
-		cqe += cqe_inc;
-	}
-	++cq->mcq.cons_index;
 }
 
 int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
@@ -420,29 +357,17 @@ int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	struct mlx4_ib_dev *dev = to_mdev(ibcq->device);
 	struct mlx4_ib_cq *cq = to_mcq(ibcq);
 	struct mlx4_mtt mtt;
-	int outst_cqe;
-	int err = 0;
+	int err;
 
-	mutex_lock(&cq->resize_mutex);
 	entries = roundup_pow_of_two(entries + 1);
 	if (entries == ibcq->cqe + 1)
-		goto out;
+		return 0;
 
-	if (ibcq->uobject) {
-		err = mlx4_alloc_resize_umem(dev, cq, entries, udata);
-		if (err)
-			goto out;
-	} else {
-		/* Can't be smaller than the number of outstanding CQEs */
-		outst_cqe = mlx4_ib_get_outstanding_cqes(cq);
-		if (entries < outst_cqe + 1) {
-			err = -EINVAL;
-			goto out;
-		}
-
-		err = mlx4_alloc_resize_buf(dev, cq, entries);
-		if (err)
-			goto out;
+	mutex_lock(&cq->resize_mutex);
+	err = mlx4_alloc_resize_umem(dev, cq, entries, udata);
+	if (err) {
+		mutex_unlock(&cq->resize_mutex);
+		return err;
 	}
 
 	mtt = cq->buf.mtt;
@@ -452,52 +377,25 @@ int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 		goto err_buf;
 
 	mlx4_mtt_cleanup(dev->dev, &mtt);
-	if (ibcq->uobject) {
-		cq->buf      = cq->resize_buf->buf;
-		cq->ibcq.cqe = cq->resize_buf->cqe;
-		ib_umem_release(cq->ibcq.umem);
-		cq->ibcq.umem     = cq->resize_umem;
+	cq->buf = cq->resize_buf->buf;
+	cq->ibcq.cqe = cq->resize_buf->cqe;
+	ib_umem_release(cq->ibcq.umem);
+	cq->ibcq.umem = cq->resize_umem;
 
-		kfree(cq->resize_buf);
-		cq->resize_buf = NULL;
-		cq->resize_umem = NULL;
-	} else {
-		struct mlx4_ib_cq_buf tmp_buf;
-		unsigned int tmp_cqe = 0;
-
-		spin_lock_irq(&cq->lock);
-		if (cq->resize_buf) {
-			mlx4_ib_cq_resize_copy_cqes(cq);
-			tmp_buf = cq->buf;
-			tmp_cqe = cq->ibcq.cqe;
-			cq->buf      = cq->resize_buf->buf;
-			cq->ibcq.cqe = cq->resize_buf->cqe;
-
-			kfree(cq->resize_buf);
-			cq->resize_buf = NULL;
-		}
-		spin_unlock_irq(&cq->lock);
-
-		if (tmp_cqe)
-			mlx4_ib_free_cq_buf(dev, &tmp_buf, tmp_cqe);
-	}
-
-	goto out;
+	kfree(cq->resize_buf);
+	cq->resize_buf = NULL;
+	cq->resize_umem = NULL;
+	mutex_unlock(&cq->resize_mutex);
+	return 0;
 
 err_buf:
 	mlx4_mtt_cleanup(dev->dev, &cq->resize_buf->buf.mtt);
-	if (!ibcq->uobject)
-		mlx4_ib_free_cq_buf(dev, &cq->resize_buf->buf,
-				    cq->resize_buf->cqe);
-
 	kfree(cq->resize_buf);
 	cq->resize_buf = NULL;
 
 	ib_umem_release(cq->resize_umem);
 	cq->resize_umem = NULL;
-out:
 	mutex_unlock(&cq->resize_mutex);
-
 	return err;
 }
 
@@ -696,7 +594,6 @@ static int mlx4_ib_poll_one(struct mlx4_ib_cq *cq,
 	u16 wqe_ctr;
 	unsigned tail = 0;
 
-repoll:
 	cqe = next_cqe_sw(cq);
 	if (!cqe)
 		return -EAGAIN;
@@ -715,22 +612,6 @@ repoll:
 	is_send  = cqe->owner_sr_opcode & MLX4_CQE_IS_SEND_MASK;
 	is_error = (cqe->owner_sr_opcode & MLX4_CQE_OPCODE_MASK) ==
 		MLX4_CQE_OPCODE_ERROR;
-
-	/* Resize CQ in progress */
-	if (unlikely((cqe->owner_sr_opcode & MLX4_CQE_OPCODE_MASK) == MLX4_CQE_OPCODE_RESIZE)) {
-		if (cq->resize_buf) {
-			struct mlx4_ib_dev *dev = to_mdev(cq->ibcq.device);
-
-			mlx4_ib_free_cq_buf(dev, &cq->buf, cq->ibcq.cqe);
-			cq->buf      = cq->resize_buf->buf;
-			cq->ibcq.cqe = cq->resize_buf->cqe;
-
-			kfree(cq->resize_buf);
-			cq->resize_buf = NULL;
-		}
-
-		goto repoll;
-	}
 
 	if (!*cur_qp ||
 	    (be32_to_cpu(cqe->vlan_my_qpn) & MLX4_CQE_QPN_MASK) != (*cur_qp)->mqp.qpn) {
