@@ -120,7 +120,6 @@ struct mlx4_ib_cq {
 	struct mlx4_ib_cq_resize *resize_buf;
 	struct mlx4_db		db;
 	spinlock_t		lock;
-	struct mutex		resize_mutex;
 	struct ib_umem	       *resize_umem;
 	/* List of qps that it serves.*/
 	struct list_head		send_qp_list;

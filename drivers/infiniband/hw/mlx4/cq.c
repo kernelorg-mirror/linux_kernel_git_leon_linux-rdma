@@ -162,7 +162,6 @@ int mlx4_ib_create_user_cq(struct ib_cq *ibcq,
 
 	entries      = roundup_pow_of_two(entries + 1);
 	cq->ibcq.cqe = entries - 1;
-	mutex_init(&cq->resize_mutex);
 	spin_lock_init(&cq->lock);
 	INIT_LIST_HEAD(&cq->send_qp_list);
 	INIT_LIST_HEAD(&cq->recv_qp_list);
@@ -252,7 +251,6 @@ int mlx4_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 
 	entries = roundup_pow_of_two(entries + 1);
 	cq->ibcq.cqe = entries - 1;
-	mutex_init(&cq->resize_mutex);
 	spin_lock_init(&cq->lock);
 	INIT_LIST_HEAD(&cq->send_qp_list);
 	INIT_LIST_HEAD(&cq->recv_qp_list);
@@ -363,12 +361,9 @@ int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	if (entries == ibcq->cqe + 1)
 		return 0;
 
-	mutex_lock(&cq->resize_mutex);
 	err = mlx4_alloc_resize_umem(dev, cq, entries, udata);
-	if (err) {
-		mutex_unlock(&cq->resize_mutex);
+	if (err)
 		return err;
-	}
 
 	mtt = cq->buf.mtt;
 
@@ -385,7 +380,6 @@ int mlx4_ib_resize_cq(struct ib_cq *ibcq, unsigned int entries,
 	kfree(cq->resize_buf);
 	cq->resize_buf = NULL;
 	cq->resize_umem = NULL;
-	mutex_unlock(&cq->resize_mutex);
 	return 0;
 
 err_buf:
@@ -395,7 +389,6 @@ err_buf:
 
 	ib_umem_release(cq->resize_umem);
 	cq->resize_umem = NULL;
-	mutex_unlock(&cq->resize_mutex);
 	return err;
 }
 
