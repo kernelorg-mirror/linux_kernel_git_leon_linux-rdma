@@ -2368,27 +2368,6 @@ static void mlx5_ib_dealloc_ucontext(struct ib_ucontext *ibcontext)
 	}
 }
 
-static phys_addr_t uar_index2pfn(struct mlx5_ib_dev *dev,
-				 int uar_idx)
-{
-	int fw_uars_per_page;
-
-	fw_uars_per_page = MLX5_CAP_GEN(dev->mdev, uar_4k) ? MLX5_UARS_IN_PAGE : 1;
-
-	return (dev->mdev->bar_addr >> PAGE_SHIFT) + uar_idx / fw_uars_per_page;
-}
-
-static u64 uar_index2paddress(struct mlx5_ib_dev *dev,
-				 int uar_idx)
-{
-	unsigned int fw_uars_per_page;
-
-	fw_uars_per_page = MLX5_CAP_GEN(dev->mdev, uar_4k) ?
-				MLX5_UARS_IN_PAGE : 1;
-
-	return (dev->mdev->bar_addr + (uar_idx / fw_uars_per_page) * PAGE_SIZE);
-}
-
 static int get_command(unsigned long offset)
 {
 	return (offset >> MLX5_IB_MMAP_CMD_SHIFT) & MLX5_IB_MMAP_CMD_MASK;
@@ -2638,7 +2617,7 @@ static int uar_mmap(struct mlx5_ib_dev *dev, enum mlx5_ib_mmap_cmd cmd,
 		uar_index = bfregi->sys_pages[idx];
 	}
 
-	pfn = uar_index2pfn(dev, uar_index);
+	pfn = mlx5_uar_index_to_pfn(dev->mdev, uar_index);
 	mlx5_ib_dbg(dev, "uar idx 0x%lx, pfn %pa\n", idx, &pfn);
 
 	err = rdma_user_mmap_io(&context->ibucontext, vma, pfn, PAGE_SIZE,
@@ -4321,7 +4300,7 @@ alloc_uar_entry(struct mlx5_ib_ucontext *c,
 		goto end;
 
 	entry->page_idx = uar_index;
-	entry->address = uar_index2paddress(dev, uar_index);
+	entry->address = mlx5_uar_index_to_paddr(dev->mdev, uar_index);
 	if (alloc_type == MLX5_IB_UAPI_UAR_ALLOC_TYPE_BF)
 		entry->mmap_flag = MLX5_IB_MMAP_TYPE_UAR_WC;
 	else

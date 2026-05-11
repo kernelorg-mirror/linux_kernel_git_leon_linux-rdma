@@ -908,6 +908,20 @@ static inline u32 wq_get_byte_sz(u8 log_sz, u8 log_stride)
 	return ((u32)1 << log_sz) << log_stride;
 }
 
+static inline phys_addr_t mlx5_uar_index_to_pfn(struct mlx5_core_dev *mdev,
+						u32 uar_idx)
+{
+	u32 fw_uars_per_page = MLX5_CAP_GEN(mdev, uar_4k) ? MLX5_UARS_IN_PAGE : 1;
+
+	return (mdev->bar_addr >> PAGE_SHIFT) + uar_idx / fw_uars_per_page;
+}
+
+static inline phys_addr_t mlx5_uar_index_to_paddr(struct mlx5_core_dev *mdev,
+						  u32 uar_idx)
+{
+	return mlx5_uar_index_to_pfn(mdev, uar_idx) << PAGE_SHIFT;
+}
+
 static inline void mlx5_init_fbc_offset(struct mlx5_buf_list *frags,
 					u8 log_stride, u8 log_sz,
 					u16 strides_offset,

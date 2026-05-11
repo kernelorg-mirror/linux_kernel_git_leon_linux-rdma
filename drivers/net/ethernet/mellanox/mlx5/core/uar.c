@@ -66,18 +66,6 @@ static int uars_per_sys_page(struct mlx5_core_dev *mdev)
 	return 1;
 }
 
-static u64 uar2pfn(struct mlx5_core_dev *mdev, u32 index)
-{
-	u32 system_page_index;
-
-	if (MLX5_CAP_GEN(mdev, uar_4k))
-		system_page_index = index >> (PAGE_SHIFT - MLX5_ADAPTER_PAGE_SHIFT);
-	else
-		system_page_index = index;
-
-	return (mdev->bar_addr >> PAGE_SHIFT) + system_page_index;
-}
-
 static void up_rel_func(struct kref *kref)
 {
 	struct mlx5_uars_page *up = container_of(kref, struct mlx5_uars_page, ref_count);
@@ -96,7 +84,7 @@ static struct mlx5_uars_page *alloc_uars_page(struct mlx5_core_dev *mdev,
 {
 	struct mlx5_uars_page *up;
 	int err = -ENOMEM;
-	phys_addr_t pfn;
+	phys_addr_t paddr;
 	int bfregs;
 	int node;
 	int i;
@@ -132,15 +120,15 @@ static struct mlx5_uars_page *alloc_uars_page(struct mlx5_core_dev *mdev,
 		goto error1;
 	}
 
-	pfn = uar2pfn(mdev, up->index);
+	paddr = mlx5_uar_index_to_paddr(mdev, up->index);
 	if (map_wc) {
-		up->map = ioremap_wc(pfn << PAGE_SHIFT, PAGE_SIZE);
+		up->map = ioremap_wc(paddr, PAGE_SIZE);
 		if (!up->map) {
 			err = -EAGAIN;
 			goto error2;
 		}
 	} else {
-		up->map = ioremap(pfn << PAGE_SHIFT, PAGE_SIZE);
+		up->map = ioremap(paddr, PAGE_SIZE);
 		if (!up->map) {
 			err = -ENOMEM;
 			goto error2;
