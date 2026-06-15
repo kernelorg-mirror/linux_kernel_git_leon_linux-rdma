@@ -550,6 +550,11 @@ static const struct pci_p2pdma_whitelist_entry {
 	{PCI_VENDOR_ID_INTEL,	0x09a2, 0},
 	/* Google SoCs. */
 	{PCI_VENDOR_ID_GOOGLE,	PCI_ANY_ID, 0},
+	/* Nvidia CPUs */
+	{PCI_VENDOR_ID_NVIDIA, 0x2f95, 0},
+	{PCI_VENDOR_ID_NVIDIA, 0x2f96, 0},
+	{PCI_VENDOR_ID_NVIDIA, 0x2f97, 0},
+	{PCI_VENDOR_ID_NVIDIA, 0x2f98, 0},
 	{}
 };
 
