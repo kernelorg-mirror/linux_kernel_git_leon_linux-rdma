@@ -174,6 +174,8 @@ struct ib_uverbs_file {
 	struct rw_semaphore	hw_destroy_rwsem;
 	spinlock_t		uobjects_lock;
 	struct list_head	uobjects;
+	/* Set by ->flush() when the file is closed during SIGKILL teardown. */
+	bool			closed_by_sigkill;
 
 	struct mutex umap_lock;
 	struct list_head umaps;

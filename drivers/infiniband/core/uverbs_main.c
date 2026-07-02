@@ -1005,12 +1005,30 @@ void uverbs_destroy_ufile_hw(struct ib_uverbs_file *ufile,
 	       !__uverbs_cleanup_ufile(ufile, reason)) {
 	}
 
-	if (WARN_ON(!list_empty(&ufile->uobjects)))
+	if (!list_empty(&ufile->uobjects)) {
+		/* There is no possible way to catch SIGKILL signal in
+		 * user-space. That signal forces close of uverbs file
+		 * descriptor and causes to a known leak of FW resources
+		 * which this WARN_ON() catches.
+		 */
+		WARN_ON(reason != RDMA_REMOVE_CLOSE ||
+			!READ_ONCE(ufile->closed_by_sigkill));
 		__uverbs_cleanup_ufile(ufile, RDMA_REMOVE_DRIVER_FAILURE);
+	}
 	ufile_destroy_ucontext(ufile, reason);
 
 done:
 	up_write(&ufile->hw_destroy_rwsem);
+}
+
+static int ib_uverbs_flush(struct file *filp, fl_owner_t id)
+{
+	struct ib_uverbs_file *file = filp->private_data;
+
+	if ((current->flags & PF_EXITING) && current->exit_code == SIGKILL)
+		WRITE_ONCE(file->closed_by_sigkill, true);
+
+	return 0;
 }
 
 static int ib_uverbs_close(struct inode *inode, struct file *filp)
@@ -1032,6 +1050,7 @@ static const struct file_operations uverbs_fops = {
 	.owner	 = THIS_MODULE,
 	.write	 = ib_uverbs_write,
 	.open	 = ib_uverbs_open,
+	.flush	 = ib_uverbs_flush,
 	.release = ib_uverbs_close,
 	.unlocked_ioctl = ib_uverbs_ioctl,
 	.compat_ioctl = compat_ptr_ioctl,
@@ -1042,6 +1061,7 @@ static const struct file_operations uverbs_mmap_fops = {
 	.write	 = ib_uverbs_write,
 	.mmap    = ib_uverbs_mmap,
 	.open	 = ib_uverbs_open,
+	.flush	 = ib_uverbs_flush,
 	.release = ib_uverbs_close,
 	.unlocked_ioctl = ib_uverbs_ioctl,
 	.compat_ioctl = compat_ptr_ioctl,
