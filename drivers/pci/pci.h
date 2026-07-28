@@ -2,6 +2,7 @@
 #ifndef DRIVERS_PCI_H
 #define DRIVERS_PCI_H
 
+#include <kunit/visibility.h>
 #include <linux/align.h>
 #include <linux/bitfield.h>
 #include <linux/pci.h>
@@ -1046,6 +1047,22 @@ resource_size_t pci_min_window_alignment(struct pci_bus *bus,
 void pci_acs_init(struct pci_dev *dev);
 void pci_enable_acs(struct pci_dev *dev);
 int pci_acs_egress_ctrl_set(struct pci_dev *pdev, struct pci_dev *target);
+
+/*
+ * Peer-to-peer routing decision for an ACS-capable ingress port, per
+ * PCIe r7.0, sec 6.12.3, table 6-11.
+ */
+enum pci_acs_p2pdma_state {
+	PCI_ACS_P2PDMA_DIRECT,		/* peer-to-peer permitted directly */
+	PCI_ACS_P2PDMA_REDIRECT,	/* redirected upstream to host bridge */
+	PCI_ACS_P2PDMA_NOT_SUPPORTED,	/* no usable peer-to-peer route */
+};
+
+#if IS_ENABLED(CONFIG_KUNIT)
+bool pci_acs_egress_port_valid(u16 acs_caps, u8 target_port);
+enum pci_acs_p2pdma_state pci_acs_p2pdma_decision(u16 ctrl, bool has_target,
+						  int egress);
+#endif
 #ifdef CONFIG_PCI_QUIRKS
 int pci_dev_specific_acs_enabled(struct pci_dev *dev, u16 acs_flags);
 int pci_dev_specific_enable_acs(struct pci_dev *dev);
