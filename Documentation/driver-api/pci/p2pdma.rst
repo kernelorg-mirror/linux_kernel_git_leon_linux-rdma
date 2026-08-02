@@ -15,6 +15,12 @@ then based on the ACS settings the transaction can route entirely within
 the PCIe hierarchy and never reach the root port. The kernel will evaluate
 the PCIe topology and always permit P2P in these well-defined cases.
 
+This evaluation covers the ACS controls that govern Requests carrying an
+Untranslated address. A Port with ACS Direct Translated P2P enabled routes
+a Request carrying a Translated address directly to the peer regardless of
+those controls, so an ATS capable client may reach the peer on the direct
+path whichever mapping the kernel selects.
+
 However, if the P2P transaction reaches the host bridge then it might have to
 hairpin back out the same root port, be routed inside the CPU SOC to another
 PCIe root port, or routed internally to the SOC.
