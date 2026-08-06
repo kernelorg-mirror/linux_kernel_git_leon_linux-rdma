@@ -3547,6 +3547,7 @@ void pci_configure_ari(struct pci_dev *dev)
 
 static bool pci_acs_flags_enabled(struct pci_dev *pdev, u16 acs_flags)
 {
+	bool request_redirect = acs_flags & PCI_ACS_RR;
 	int pos;
 	u16 ctrl;
 
@@ -3562,6 +3563,15 @@ static bool pci_acs_flags_enabled(struct pci_dev *pdev, u16 acs_flags)
 	acs_flags &= (pdev->acs_capabilities | PCI_ACS_EC);
 
 	pci_read_config_word(pdev, pos + PCI_ACS_CTRL, &ctrl);
+
+	/*
+	 * Direct Translated P2P routes a Translated Request to the peer
+	 * regardless of Request Redirect, so Request Redirect does not
+	 * isolate unless Translation Blocking rejects the request first.
+	 */
+	if (request_redirect && (ctrl & PCI_ACS_DT) && !(ctrl & PCI_ACS_TB))
+		return false;
+
 	return (ctrl & acs_flags) == acs_flags;
 }
 

@@ -4978,6 +4978,7 @@ static bool pci_quirk_intel_spt_pch_acs_match(struct pci_dev *dev)
 
 static int pci_quirk_intel_spt_pch_acs(struct pci_dev *dev, u16 acs_flags)
 {
+	bool request_redirect = acs_flags & PCI_ACS_RR;
 	int pos;
 	u32 cap, ctrl;
 
@@ -4993,6 +4994,10 @@ static int pci_quirk_intel_spt_pch_acs(struct pci_dev *dev, u16 acs_flags)
 	acs_flags &= (cap | PCI_ACS_EC);
 
 	pci_read_config_dword(dev, pos + INTEL_SPT_ACS_CTRL, &ctrl);
+
+	/* Direct Translated P2P may bypass Request Redirect. */
+	if (request_redirect && (ctrl & PCI_ACS_DT) && !(ctrl & PCI_ACS_TB))
+		return 0;
 
 	return pci_acs_ctrl_enabled(acs_flags, ctrl);
 }
