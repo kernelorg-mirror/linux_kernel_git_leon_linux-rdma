@@ -703,6 +703,7 @@ calc_map_type_and_dist(struct pci_dev *provider, struct pci_dev *client,
 {
 	enum pci_p2pdma_map_type map_type = PCI_P2PDMA_MAP_THRU_HOST_BRIDGE;
 	struct pci_dev *a = provider, *b = client, *bb;
+	bool no_common_upstream = false;
 	bool acs_redirects = false;
 	struct pci_p2pdma *p2pdma;
 	struct seq_buf acs_list;
@@ -740,8 +741,12 @@ calc_map_type_and_dist(struct pci_dev *provider, struct pci_dev *client,
 		dist_a++;
 	}
 
-	*dist = dist_a + dist_b;
-	goto map_through_host_bridge;
+	/*
+	 * The paths share no upstream bridge, so the request can only reach
+	 * the peer through the host bridge. Examine the client path anyway,
+	 * so the diagnostics below name every ACS port on both paths.
+	 */
+	no_common_upstream = true;
 
 check_b_path_acs:
 	bb = b;
@@ -761,6 +766,9 @@ check_b_path_acs:
 	*dist = dist_a + dist_b;
 
 	if (!acs_cnt) {
+		if (no_common_upstream)
+			goto map_through_host_bridge;
+
 		map_type = PCI_P2PDMA_MAP_BUS_ADDR;
 		goto done;
 	}
