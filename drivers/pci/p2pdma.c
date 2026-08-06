@@ -541,6 +541,7 @@ static struct pci_dev *find_parent_pci_dev(struct device *dev)
 enum pci_acs_p2pdma_state {
 	PCI_ACS_P2PDMA_DIRECT,
 	PCI_ACS_P2PDMA_REDIRECT,
+	PCI_ACS_P2PDMA_NOT_SUPPORTED,
 };
 
 enum pci_acs_p2pdma_tlp {
@@ -549,9 +550,10 @@ enum pci_acs_p2pdma_tlp {
 };
 
 static enum pci_acs_p2pdma_state
-pci_acs_p2pdma_state(struct pci_dev *pdev, enum pci_acs_p2pdma_tlp tlp)
+pci_acs_p2pdma_state(struct pci_dev *pdev, struct pci_dev *target,
+		     enum pci_acs_p2pdma_tlp tlp)
 {
-	int pos;
+	int pos, ret;
 	u16 ctrl;
 
 	pos = pdev->acs_cap;
@@ -559,14 +561,31 @@ pci_acs_p2pdma_state(struct pci_dev *pdev, enum pci_acs_p2pdma_tlp tlp)
 		return PCI_ACS_P2PDMA_DIRECT;
 
 	if (pci_read_config_word(pdev, pos + PCI_ACS_CTRL, &ctrl))
-		return PCI_ACS_P2PDMA_REDIRECT;
+		return PCI_ACS_P2PDMA_NOT_SUPPORTED;
 
 	if (tlp == PCI_ACS_P2PDMA_TLP_COMPLETION)
 		return ctrl & PCI_ACS_CR ? PCI_ACS_P2PDMA_REDIRECT :
 					   PCI_ACS_P2PDMA_DIRECT;
 
-	return ctrl & (PCI_ACS_RR | PCI_ACS_EC) ?
-		PCI_ACS_P2PDMA_REDIRECT : PCI_ACS_P2PDMA_DIRECT;
+	/* EC applies only to Requests where the target is known. */
+	if (!target || !(ctrl & PCI_ACS_EC))
+		return ctrl & PCI_ACS_RR ?
+			PCI_ACS_P2PDMA_REDIRECT : PCI_ACS_P2PDMA_DIRECT;
+
+	/*
+	 * PCIe r7.0, sec 6.12.3, table 6-11: a set Egress Control Vector
+	 * bit redirects the request only when Request Redirect is set.  With
+	 * Request Redirect clear, the request is handled as an ACS Violation.
+	 * A clear vector bit permits the Request to route directly.
+	 */
+	ret = pci_acs_egress_ctrl_is_set(pdev, target);
+	if (ret < 0)
+		return PCI_ACS_P2PDMA_NOT_SUPPORTED;
+	if (ret)
+		return ctrl & PCI_ACS_RR ? PCI_ACS_P2PDMA_REDIRECT :
+						PCI_ACS_P2PDMA_NOT_SUPPORTED;
+
+	return PCI_ACS_P2PDMA_DIRECT;
 }
 
 static void seq_buf_print_bus_devfn(struct seq_buf *buf, struct pci_dev *pdev)
@@ -744,14 +763,14 @@ static unsigned long map_types_idx(struct pci_dev *client)
  * then to Device B. The mapping type returned depends on the ACS
  * redirection setting of the ports along the path.
  *
- * The client initiates Requests to provider memory. Check Request Redirect
- * on the client path and Completion Redirect for read Completions on the
- * provider path.
+ * The client initiates Requests to provider memory. At the path divergence,
+ * check Request Redirect and Egress Control on the client-side port, and
+ * Completion Redirect for read Completions on the provider-side port.
  *
- * If ACS redirect is set on any port in the path, traffic between the
- * devices will go through the host bridge, so return
- * PCI_P2PDMA_MAP_THRU_HOST_BRIDGE; otherwise return
- * PCI_P2PDMA_MAP_BUS_ADDR.
+ * If ACS redirects traffic at either divergence port, return
+ * PCI_P2PDMA_MAP_THRU_HOST_BRIDGE. If ACS blocks the direct path or leaves
+ * its routing indeterminate, return PCI_P2PDMA_MAP_NOT_SUPPORTED. Otherwise,
+ * return PCI_P2PDMA_MAP_BUS_ADDR.
  *
  * Any two devices that have a data path that goes through the host bridge
  * will consult a whitelist. If the host bridge is in the whitelist, return
@@ -765,9 +784,12 @@ calc_map_type_and_dist(struct pci_dev *provider, struct pci_dev *client,
 {
 	enum pci_p2pdma_map_type map_type = PCI_P2PDMA_MAP_THRU_HOST_BRIDGE;
 	struct pci_dev *a = provider, *b = client, *bb;
+	struct pci_dev *a_child = NULL, *b_child = NULL;
+	struct pci_dev *acs_unsupported = NULL;
+	enum pci_acs_p2pdma_state state;
 	struct pci_p2pdma *p2pdma;
 	struct seq_buf acs_list;
-	int acs_cnt = 0;
+	int acs_redirect_cnt = 0;
 	int dist_a = 0;
 	int dist_b = 0;
 	char buf[128];
@@ -781,51 +803,66 @@ calc_map_type_and_dist(struct pci_dev *provider, struct pci_dev *client,
 	 */
 	while (a) {
 		dist_b = 0;
-
-		if (pci_acs_p2pdma_state(a,
-					 PCI_ACS_P2PDMA_TLP_COMPLETION) ==
-		    PCI_ACS_P2PDMA_REDIRECT) {
-			seq_buf_print_bus_devfn(&acs_list, a);
-			acs_cnt++;
-		}
-
+		b_child = NULL;
 		bb = b;
 
 		while (bb) {
 			if (a == bb)
-				goto check_b_path_acs;
+				goto check_paths_acs;
 
+			b_child = bb;
 			bb = pci_upstream_bridge(bb);
 			dist_b++;
 		}
 
+		a_child = a;
 		a = pci_upstream_bridge(a);
 		dist_a++;
 	}
 
+	/*
+	 * The paths share no upstream bridge, so there is no direct path for
+	 * ACS to gate: PCI_P2PDMA_MAP_BUS_ADDR is not reachable here and the
+	 * request can only get to the peer through the host bridge.
+	 */
 	*dist = dist_a + dist_b;
 	goto map_through_host_bridge;
 
-check_b_path_acs:
-	bb = b;
-
-	while (bb) {
-		if (a == bb)
-			break;
-
-		if (pci_acs_p2pdma_state(bb,
-					 PCI_ACS_P2PDMA_TLP_REQUEST) ==
-		    PCI_ACS_P2PDMA_REDIRECT) {
-			seq_buf_print_bus_devfn(&acs_list, bb);
-			acs_cnt++;
-		}
-
-		bb = pci_upstream_bridge(bb);
-	}
-
+check_paths_acs:
 	*dist = dist_a + dist_b;
 
-	if (!acs_cnt) {
+	/*
+	 * ACS P2P routing controls apply where a TLP can route toward the peer
+	 * or upstream. Below that divergence, its only route toward the other
+	 * branch is upstream, so redirect controls do not affect the path.
+	 */
+	if (a_child && b_child) {
+		state = pci_acs_p2pdma_state(a_child, NULL,
+					     PCI_ACS_P2PDMA_TLP_COMPLETION);
+		if (state != PCI_ACS_P2PDMA_DIRECT) {
+			seq_buf_print_bus_devfn(&acs_list, a_child);
+			if (state == PCI_ACS_P2PDMA_REDIRECT)
+				acs_redirect_cnt++;
+			else if (!acs_unsupported)
+				acs_unsupported = a_child;
+		}
+
+		state = pci_acs_p2pdma_state(b_child, a_child,
+					     PCI_ACS_P2PDMA_TLP_REQUEST);
+		if (state != PCI_ACS_P2PDMA_DIRECT) {
+			seq_buf_print_bus_devfn(&acs_list, b_child);
+			if (state == PCI_ACS_P2PDMA_REDIRECT)
+				acs_redirect_cnt++;
+			else if (!acs_unsupported)
+				acs_unsupported = b_child;
+		}
+	}
+
+	/*
+	 * Below a shared upstream bridge, a path that neither divergence port
+	 * redirects or blocks routes the request directly.
+	 */
+	if (!acs_unsupported && !acs_redirect_cnt) {
 		map_type = PCI_P2PDMA_MAP_BUS_ADDR;
 		goto done;
 	}
@@ -834,10 +871,20 @@ check_b_path_acs:
 		/* Drop the final semicolon; the list is not empty here. */
 		if (!seq_buf_has_overflowed(&acs_list))
 			acs_list.buffer[acs_list.len - 1] = '\0';
-		pci_warn(client, "ACS redirect is set between the client and provider (%s)\n",
-			 pci_name(provider));
-		pci_warn(client, "to disable ACS redirect for this path, add the kernel parameter: pci=disable_acs_redir=%s\n",
+		if (acs_unsupported)
+			pci_warn(client, "ACS leaves no usable direct P2P path to provider %s at %s\n",
+				 pci_name(provider), pci_name(acs_unsupported));
+		else
+			pci_warn(client, "ACS redirect is set between the client and provider (%s)\n",
+				 pci_name(provider));
+		pci_warn(client, "to disable ACS controls for this path, add the kernel parameter: pci=disable_acs_redir=%s\n",
 			 seq_buf_str(&acs_list));
+	}
+
+	/* A blocked or indeterminate direct path is not an upstream redirect. */
+	if (acs_unsupported) {
+		map_type = PCI_P2PDMA_MAP_NOT_SUPPORTED;
+		goto done;
 	}
 
 map_through_host_bridge:
