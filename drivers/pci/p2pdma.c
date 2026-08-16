@@ -9,6 +9,7 @@
  */
 
 #define pr_fmt(fmt) "pci-p2pdma: " fmt
+#include <linux/acpi.h>
 #include <linux/ctype.h>
 #include <linux/dma-map-ops.h>
 #include <linux/pci-p2pdma.h>
@@ -733,6 +734,64 @@ static bool host_bridge_whitelist(struct pci_dev *a, struct pci_dev *b,
 	return false;
 }
 
+#ifdef CONFIG_ACPI
+static int pci_host_bridge_pxm(struct pci_dev *pdev)
+{
+	struct pci_host_bridge *host = pci_find_host_bridge(pdev->bus);
+	struct acpi_device *adev;
+	const char *uid_str;
+	u32 uid;
+
+	adev = to_acpi_device_node(host->dev.fwnode);
+	if (!adev)
+		return -ENODEV;
+
+	uid_str = acpi_device_uid(adev);
+	if (!uid_str || kstrtou32(uid_str, 0, &uid))
+		return -ENODEV;
+
+	return acpi_get_genport_proximity_domain(uid);
+}
+#else
+static int pci_host_bridge_pxm(struct pci_dev *pdev)
+{
+	return -ENODEV;
+}
+#endif
+
+/*
+ * Retrieve the ordered (non-UIO) HMAT coordinates from the client's host
+ * bridge to the provider's host bridge. A successful lookup means the
+ * platform vouches for cross-host-bridge P2P. -ENODATA means the platform
+ * describes the pair but does not permit an ordered path. Other errors mean
+ * that HMAT provides no policy for this pair.
+ *
+ * The client is the requester of the P2P transactions and the provider is the
+ * completer, so the client's host bridge is the HMAT initiator and the
+ * provider's host bridge is the HMAT target. UIO-only paths are described by
+ * firmware but are not (yet) used to authorize ordered DMA. @coord may be
+ * NULL when only the authorization result is needed.
+ */
+static int
+host_bridge_hmat_p2p_coordinates(struct pci_dev *provider,
+				 struct pci_dev *client,
+				 struct access_coordinate *coord)
+{
+	struct access_coordinate unused;
+	int init_pxm, targ_pxm;
+
+	init_pxm = pci_host_bridge_pxm(client);
+	if (init_pxm < 0)
+		return init_pxm;
+
+	targ_pxm = pci_host_bridge_pxm(provider);
+	if (targ_pxm < 0)
+		return targ_pxm;
+
+	return acpi_get_p2p_coordinates(init_pxm, targ_pxm, HMAT_P2P_NON_UIO,
+					coord ? coord : &unused);
+}
+
 static unsigned long map_types_idx(struct pci_dev *client)
 {
 	return (pci_domain_nr(client->bus) << 16) | pci_dev_id(client);
@@ -768,11 +827,10 @@ static unsigned long map_types_idx(struct pci_dev *client)
  * PCI_P2PDMA_MAP_THRU_HOST_BRIDGE. Otherwise, return
  * PCI_P2PDMA_MAP_BUS_ADDR.
  *
- * Any two devices that have a data path that goes through the host bridge
- * will consult a whitelist. If the host bridge is in the whitelist, return
- * PCI_P2PDMA_MAP_THRU_HOST_BRIDGE with the distance set to the number of
- * ports per above. If the device is not in the whitelist, return
- * PCI_P2PDMA_MAP_NOT_SUPPORTED.
+ * For a path through a host bridge, an HMAT entry is authoritative. A usable
+ * ordered entry permits the path and an unreachable entry rejects it. Only
+ * when HMAT has no policy for the pair may CPU support or the host bridge
+ * whitelist permit the path.
  */
 VISIBLE_IF_KUNIT enum pci_p2pdma_map_type
 calc_map_type_and_dist(struct pci_dev *provider, struct pci_dev *client,
@@ -788,6 +846,7 @@ calc_map_type_and_dist(struct pci_dev *provider, struct pci_dev *client,
 	int acs_redirect_cnt = 0;
 	int dist_a = 0;
 	int dist_b = 0;
+	int hmat_ret;
 	char buf[128];
 
 	seq_buf_init(&acs_list, buf, sizeof(buf));
@@ -889,13 +948,25 @@ check_paths_acs:
 	}
 
 map_through_host_bridge:
-	if (!cpu_supports_p2pdma() &&
-	    !host_bridge_whitelist(provider, client, verbose)) {
-		if (verbose)
-			pci_warn(client, "cannot be used for peer-to-peer DMA as the client and provider (%s) do not share an upstream bridge or whitelisted host bridge\n",
+	hmat_ret = host_bridge_hmat_p2p_coordinates(provider, client, NULL);
+	if (!hmat_ret)
+		goto done;
+
+	if ((hmat_ret == -ENOENT || hmat_ret == -ENODEV ||
+	     hmat_ret == -EOPNOTSUPP) &&
+	    (cpu_supports_p2pdma() ||
+	     host_bridge_whitelist(provider, client, verbose)))
+		goto done;
+
+	if (verbose) {
+		if (hmat_ret == -ENODATA)
+			pci_warn(client, "HMAT describes no usable ordered P2P path to provider %s\n",
 				 pci_name(provider));
-		map_type = PCI_P2PDMA_MAP_NOT_SUPPORTED;
+		else
+			pci_warn(client, "no HMAT description or legacy platform support for P2P to provider %s\n",
+				 pci_name(provider));
 	}
+	map_type = PCI_P2PDMA_MAP_NOT_SUPPORTED;
 done:
 	/*
 	 * pci_p2pmem_find_many() reaches this with a provider whose driver may
