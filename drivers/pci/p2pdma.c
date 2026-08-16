@@ -9,6 +9,7 @@
  */
 
 #define pr_fmt(fmt) "pci-p2pdma: " fmt
+#include <kunit/static_stub.h>
 #include <linux/acpi.h>
 #include <linux/ctype.h>
 #include <linux/dma-map-ops.h>
@@ -67,22 +68,6 @@ struct pci_p2pdma {
 struct pci_p2pdma_pagemap {
 	struct dev_pagemap pgmap;
 	struct p2pdma_provider *mem;
-};
-
-/* Provider rank classes, ordered from most to least preferable. */
-enum pci_p2pdma_rank_type {
-	PCI_P2PDMA_RANK_DIRECT,
-	PCI_P2PDMA_RANK_HMAT_BANDWIDTH,
-	PCI_P2PDMA_RANK_HMAT_LATENCY,
-	PCI_P2PDMA_RANK_DISTANCE,
-};
-
-struct pci_p2pdma_rank {
-	enum pci_p2pdma_rank_type type;
-	u32 bandwidth;
-	u32 latency;
-	int distance;
-	bool latency_valid;
 };
 
 static struct pci_p2pdma_pagemap *to_p2p_pgmap(struct dev_pagemap *pgmap)
@@ -613,8 +598,10 @@ static void seq_buf_print_bus_devfn(struct seq_buf *buf, struct pci_dev *pdev)
 	seq_buf_printf(buf, "%s;", pci_name(pdev));
 }
 
-static bool cpu_supports_p2pdma(void)
+VISIBLE_IF_KUNIT bool cpu_supports_p2pdma(void)
 {
+	KUNIT_STATIC_STUB_REDIRECT(cpu_supports_p2pdma);
+
 #ifdef CONFIG_X86
 	struct cpuinfo_x86 *c = &cpu_data(0);
 
@@ -625,6 +612,7 @@ static bool cpu_supports_p2pdma(void)
 
 	return false;
 }
+EXPORT_SYMBOL_IF_KUNIT(cpu_supports_p2pdma);
 
 static const struct pci_p2pdma_whitelist_entry {
 	unsigned short vendor;
@@ -751,12 +739,14 @@ static bool host_bridge_whitelist(struct pci_dev *a, struct pci_dev *b,
 }
 
 #ifdef CONFIG_ACPI
-static int pci_host_bridge_pxm(struct pci_dev *pdev)
+VISIBLE_IF_KUNIT int pci_host_bridge_pxm(struct pci_dev *pdev)
 {
 	struct pci_host_bridge *host = pci_find_host_bridge(pdev->bus);
 	struct acpi_device *adev;
 	const char *uid_str;
 	u32 uid;
+
+	KUNIT_STATIC_STUB_REDIRECT(pci_host_bridge_pxm, pdev);
 
 	adev = to_acpi_device_node(host->dev.fwnode);
 	if (!adev)
@@ -769,11 +759,14 @@ static int pci_host_bridge_pxm(struct pci_dev *pdev)
 	return acpi_get_genport_proximity_domain(uid);
 }
 #else
-static int pci_host_bridge_pxm(struct pci_dev *pdev)
+VISIBLE_IF_KUNIT int pci_host_bridge_pxm(struct pci_dev *pdev)
 {
+	KUNIT_STATIC_STUB_REDIRECT(pci_host_bridge_pxm, pdev);
+
 	return -ENODEV;
 }
 #endif
+EXPORT_SYMBOL_IF_KUNIT(pci_host_bridge_pxm);
 
 /*
  * Retrieve the ordered (non-UIO) HMAT coordinates from the client's host
@@ -1003,7 +996,7 @@ done:
 }
 EXPORT_SYMBOL_IF_KUNIT(calc_map_type_and_dist);
 
-static int
+VISIBLE_IF_KUNIT int
 pci_p2pdma_rank_cmp(const struct pci_p2pdma_rank *a,
 		    const struct pci_p2pdma_rank *b)
 {
@@ -1026,13 +1019,14 @@ pci_p2pdma_rank_cmp(const struct pci_p2pdma_rank *a,
 
 	return 0;
 }
+EXPORT_SYMBOL_IF_KUNIT(pci_p2pdma_rank_cmp);
 
 /*
  * P2P bandwidth is limited by the slowest direction and client path, while
  * the largest latency bounds the worst path. Only compare a metric when every
  * host-bridge path supplies both its read and write values.
  */
-static int
+VISIBLE_IF_KUNIT int
 pci_p2pdma_rank_many(struct pci_dev *provider, struct device **clients,
 		     int num_clients, bool verbose,
 		     struct pci_p2pdma_rank *rank)
@@ -1122,6 +1116,7 @@ pci_p2pdma_rank_many(struct pci_dev *provider, struct device **clients,
 
 	return 0;
 }
+EXPORT_SYMBOL_IF_KUNIT(pci_p2pdma_rank_many);
 
 /**
  * pci_p2pdma_distance_many - Determine the cumulative distance between
