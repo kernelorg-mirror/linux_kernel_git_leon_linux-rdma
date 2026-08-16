@@ -69,6 +69,22 @@ struct pci_p2pdma_pagemap {
 	struct p2pdma_provider *mem;
 };
 
+/* Provider rank classes, ordered from most to least preferable. */
+enum pci_p2pdma_rank_type {
+	PCI_P2PDMA_RANK_DIRECT,
+	PCI_P2PDMA_RANK_HMAT_BANDWIDTH,
+	PCI_P2PDMA_RANK_HMAT_LATENCY,
+	PCI_P2PDMA_RANK_DISTANCE,
+};
+
+struct pci_p2pdma_rank {
+	enum pci_p2pdma_rank_type type;
+	u32 bandwidth;
+	u32 latency;
+	int distance;
+	bool latency_valid;
+};
+
 static struct pci_p2pdma_pagemap *to_p2p_pgmap(struct dev_pagemap *pgmap)
 {
 	return container_of(pgmap, struct pci_p2pdma_pagemap, pgmap);
@@ -834,7 +850,7 @@ static unsigned long map_types_idx(struct pci_dev *client)
  */
 VISIBLE_IF_KUNIT enum pci_p2pdma_map_type
 calc_map_type_and_dist(struct pci_dev *provider, struct pci_dev *client,
-		int *dist, bool verbose)
+		int *dist, bool verbose, struct access_coordinate *hmat_coord)
 {
 	enum pci_p2pdma_map_type map_type = PCI_P2PDMA_MAP_THRU_HOST_BRIDGE;
 	struct pci_dev *a = provider, *b = client, *bb, *target;
@@ -848,6 +864,9 @@ calc_map_type_and_dist(struct pci_dev *provider, struct pci_dev *client,
 	int dist_b = 0;
 	int hmat_ret;
 	char buf[128];
+
+	if (hmat_coord)
+		*hmat_coord = (struct access_coordinate) {};
 
 	seq_buf_init(&acs_list, buf, sizeof(buf));
 
@@ -948,7 +967,7 @@ check_paths_acs:
 	}
 
 map_through_host_bridge:
-	hmat_ret = host_bridge_hmat_p2p_coordinates(provider, client, NULL);
+	hmat_ret = host_bridge_hmat_p2p_coordinates(provider, client, hmat_coord);
 	if (!hmat_ret)
 		goto done;
 
@@ -984,31 +1003,51 @@ done:
 }
 EXPORT_SYMBOL_IF_KUNIT(calc_map_type_and_dist);
 
-/**
- * pci_p2pdma_distance_many - Determine the cumulative distance between
- *	a p2pdma provider and the clients in use.
- * @provider: p2pdma provider to check against the client list
- * @clients: array of devices to check (NULL-terminated)
- * @num_clients: number of clients in the array
- * @verbose: if true, print warnings for devices when we return -1
- *
- * Returns -1 if any of the clients are not compatible, otherwise returns a
- * positive number where a lower number is the preferable choice. (If there's
- * one client that's the same as the provider it will return 0, which is best
- * choice).
- *
- * "compatible" means the provider and the clients are either all behind
- * the same PCI root port or the host bridges connected to each of the devices
- * are listed in the 'pci_p2pdma_whitelist'.
+static int
+pci_p2pdma_rank_cmp(const struct pci_p2pdma_rank *a,
+		    const struct pci_p2pdma_rank *b)
+{
+	if (a->type != b->type)
+		return a->type < b->type ? -1 : 1;
+
+	if (a->type == PCI_P2PDMA_RANK_HMAT_BANDWIDTH) {
+		if (a->bandwidth != b->bandwidth)
+			return a->bandwidth > b->bandwidth ? -1 : 1;
+		if (a->latency_valid != b->latency_valid)
+			return a->latency_valid ? -1 : 1;
+	}
+
+	if ((a->type == PCI_P2PDMA_RANK_HMAT_LATENCY ||
+	     a->latency_valid) && a->latency != b->latency)
+		return a->latency < b->latency ? -1 : 1;
+
+	if (a->distance != b->distance)
+		return a->distance < b->distance ? -1 : 1;
+
+	return 0;
+}
+
+/*
+ * P2P bandwidth is limited by the slowest direction and client path, while
+ * the largest latency bounds the worst path. Only compare a metric when every
+ * host-bridge path supplies both its read and write values.
  */
-int pci_p2pdma_distance_many(struct pci_dev *provider, struct device **clients,
-			     int num_clients, bool verbose)
+static int
+pci_p2pdma_rank_many(struct pci_dev *provider, struct device **clients,
+		     int num_clients, bool verbose,
+		     struct pci_p2pdma_rank *rank)
 {
 	enum pci_p2pdma_map_type map = PCI_P2PDMA_MAP_BUS_ADDR;
 	enum pci_p2pdma_map_type client_map;
+	struct access_coordinate coord;
+	bool bandwidth_valid = true;
+	bool latency_valid = true;
 	struct pci_dev *pci_client;
-	int total_dist = 0;
 	int i, distance;
+
+	*rank = (struct pci_p2pdma_rank) {
+		.bandwidth = UINT_MAX,
+	};
 
 	if (num_clients == 0)
 		return -1;
@@ -1023,7 +1062,7 @@ int pci_p2pdma_distance_many(struct pci_dev *provider, struct device **clients,
 		}
 
 		client_map = calc_map_type_and_dist(provider, pci_client,
-						    &distance, verbose);
+						    &distance, verbose, &coord);
 
 		pci_dev_put(pci_client);
 
@@ -1034,6 +1073,20 @@ int pci_p2pdma_distance_many(struct pci_dev *provider, struct device **clients,
 		case PCI_P2PDMA_MAP_THRU_HOST_BRIDGE:
 			if (map != PCI_P2PDMA_MAP_NOT_SUPPORTED)
 				map = client_map;
+
+			if (!coord.read_bandwidth || !coord.write_bandwidth)
+				bandwidth_valid = false;
+			else
+				rank->bandwidth = min3(rank->bandwidth,
+						       coord.read_bandwidth,
+						       coord.write_bandwidth);
+
+			if (!coord.read_latency || !coord.write_latency)
+				latency_valid = false;
+			else
+				rank->latency = max3(rank->latency,
+						     coord.read_latency,
+						     coord.write_latency);
 			break;
 		default:
 			break;
@@ -1042,13 +1095,59 @@ int pci_p2pdma_distance_many(struct pci_dev *provider, struct device **clients,
 		if (map == PCI_P2PDMA_MAP_NOT_SUPPORTED && !verbose)
 			break;
 
-		total_dist += distance;
+		rank->distance += distance;
 	}
 
-	if (map == PCI_P2PDMA_MAP_NOT_SUPPORTED)
+	switch (map) {
+	case PCI_P2PDMA_MAP_NOT_SUPPORTED:
+		return -1;
+	case PCI_P2PDMA_MAP_BUS_ADDR:
+		rank->type = PCI_P2PDMA_RANK_DIRECT;
+		return 0;
+	case PCI_P2PDMA_MAP_THRU_HOST_BRIDGE:
+		break;
+	default:
+		return -1;
+	}
+
+	if (bandwidth_valid) {
+		rank->type = PCI_P2PDMA_RANK_HMAT_BANDWIDTH;
+		rank->latency_valid = latency_valid;
+	} else if (latency_valid) {
+		rank->type = PCI_P2PDMA_RANK_HMAT_LATENCY;
+		rank->latency_valid = true;
+	} else {
+		rank->type = PCI_P2PDMA_RANK_DISTANCE;
+	}
+
+	return 0;
+}
+
+/**
+ * pci_p2pdma_distance_many - Determine the cumulative distance between
+ *	a p2pdma provider and the clients in use.
+ * @provider: p2pdma provider to check against the client list
+ * @clients: array of devices to check (NULL-terminated)
+ * @num_clients: number of clients in the array
+ * @verbose: if true, print warnings for devices when we return -1
+ *
+ * Returns -1 if any of the clients are not compatible, otherwise returns a
+ * positive number where a lower number is the preferable choice. (If there's
+ * one client that's the same as the provider it will return 0, which is best
+ * choice).
+ *
+ * "compatible" means the provider and the clients have a direct PCI path or
+ * the platform permits the transaction through the host bridge.
+ */
+int pci_p2pdma_distance_many(struct pci_dev *provider, struct device **clients,
+			     int num_clients, bool verbose)
+{
+	struct pci_p2pdma_rank rank;
+
+	if (pci_p2pdma_rank_many(provider, clients, num_clients, verbose, &rank))
 		return -1;
 
-	return total_dist;
+	return rank.distance;
 }
 EXPORT_SYMBOL_GPL(pci_p2pdma_distance_many);
 
@@ -1076,15 +1175,15 @@ static bool pci_has_p2pmem(struct pci_dev *pdev)
 
 /**
  * pci_p2pmem_find_many - find a peer-to-peer DMA memory device compatible with
- *	the specified list of clients and shortest distance
+ *	the specified list of clients
  * @clients: array of devices to check (NULL-terminated)
  * @num_clients: number of client devices in the list
  *
- * If multiple devices are behind the same switch, the one "closest" to the
- * client devices in use will be chosen first. (So if one of the providers is
- * the same as one of the clients, that provider will be used ahead of any
- * other providers that are unrelated). If multiple providers are an equal
- * distance away, one will be chosen at random.
+ * A provider with direct paths to all clients is preferred. For paths through
+ * host bridges, complete ordered HMAT bandwidth is ranked before latency-only
+ * data, using the worst client path for each metric. Topology distance breaks
+ * performance ties and remains the fallback when HMAT data is incomplete. If
+ * multiple providers have an equal rank, one is chosen at random.
  *
  * Returns a pointer to the PCI device with a reference taken (use pci_dev_put
  * to return the reference) or NULL if no compatible device is found. The
@@ -1093,47 +1192,50 @@ static bool pci_has_p2pmem(struct pci_dev *pdev)
 struct pci_dev *pci_p2pmem_find_many(struct device **clients, int num_clients)
 {
 	struct pci_dev *pdev = NULL;
-	int distance;
-	int closest_distance = INT_MAX;
-	struct pci_dev **closest_pdevs;
+	struct pci_p2pdma_rank rank, best_rank;
+	struct pci_dev **best_pdevs;
+	bool have_best = false;
 	int dev_cnt = 0;
-	const int max_devs = PAGE_SIZE / sizeof(*closest_pdevs);
-	int i;
+	const int max_devs = PAGE_SIZE / sizeof(*best_pdevs);
+	int cmp, i;
 
-	closest_pdevs = kmalloc(PAGE_SIZE, GFP_KERNEL);
-	if (!closest_pdevs)
+	best_pdevs = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!best_pdevs)
 		return NULL;
 
 	for_each_pci_dev(pdev) {
 		if (!pci_has_p2pmem(pdev))
 			continue;
 
-		distance = pci_p2pdma_distance_many(pdev, clients,
-						    num_clients, false);
-		if (distance < 0 || distance > closest_distance)
+		if (pci_p2pdma_rank_many(pdev, clients, num_clients, false,
+					  &rank))
 			continue;
 
-		if (distance == closest_distance && dev_cnt >= max_devs)
-			continue;
-
-		if (distance < closest_distance) {
-			for (i = 0; i < dev_cnt; i++)
-				pci_dev_put(closest_pdevs[i]);
-
-			dev_cnt = 0;
-			closest_distance = distance;
+		if (have_best) {
+			cmp = pci_p2pdma_rank_cmp(&rank, &best_rank);
+			if (cmp > 0 || (!cmp && dev_cnt >= max_devs))
+				continue;
+			if (cmp < 0) {
+				for (i = 0; i < dev_cnt; i++)
+					pci_dev_put(best_pdevs[i]);
+				dev_cnt = 0;
+				best_rank = rank;
+			}
+		} else {
+			best_rank = rank;
+			have_best = true;
 		}
 
-		closest_pdevs[dev_cnt++] = pci_dev_get(pdev);
+		best_pdevs[dev_cnt++] = pci_dev_get(pdev);
 	}
 
 	if (dev_cnt)
-		pdev = pci_dev_get(closest_pdevs[get_random_u32_below(dev_cnt)]);
+		pdev = pci_dev_get(best_pdevs[get_random_u32_below(dev_cnt)]);
 
 	for (i = 0; i < dev_cnt; i++)
-		pci_dev_put(closest_pdevs[i]);
+		pci_dev_put(best_pdevs[i]);
 
-	kfree(closest_pdevs);
+	kfree(best_pdevs);
 	return pdev;
 }
 EXPORT_SYMBOL_GPL(pci_p2pmem_find_many);
@@ -1331,7 +1433,7 @@ enum pci_p2pdma_map_type pci_p2pdma_map_type(struct p2pdma_provider *provider,
 	rcu_read_unlock();
 
 	if (type == PCI_P2PDMA_MAP_UNKNOWN)
-		return calc_map_type_and_dist(pdev, client, &dist, true);
+		return calc_map_type_and_dist(pdev, client, &dist, true, NULL);
 
 	return type;
 }

@@ -704,7 +704,8 @@ static enum pci_p2pdma_map_type acs_walk_map(struct acs_fabric *f)
 {
 	int dist;
 
-	return calc_map_type_and_dist(f->provider, f->client, &dist, false);
+	return calc_map_type_and_dist(f->provider, f->client, &dist, false,
+				      NULL);
 }
 
 static void acs_walk_bus_addr_test(struct kunit *test)

@@ -9,6 +9,7 @@
 #include <linux/pci-p2pdma.h>
 #include <trace/events/pci.h>
 
+struct access_coordinate;
 struct pcie_tlp_log;
 
 /* Number of possible devfns: 0.0 to 1f.7 inclusive */
@@ -1100,7 +1101,8 @@ enum pci_acs_p2pdma_state pci_acs_p2pdma_decision(u16 ctrl, bool has_target,
 						  int egress);
 enum pci_p2pdma_map_type calc_map_type_and_dist(struct pci_dev *provider,
 						struct pci_dev *client,
-						int *dist, bool verbose);
+						int *dist, bool verbose,
+						struct access_coordinate *coord);
 #endif
 #ifdef CONFIG_PCI_QUIRKS
 int pci_dev_specific_acs_enabled(struct pci_dev *dev, u16 acs_flags,
