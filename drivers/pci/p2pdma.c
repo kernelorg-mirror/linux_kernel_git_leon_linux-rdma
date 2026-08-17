@@ -1004,8 +1004,8 @@ EXPORT_SYMBOL_IF_KUNIT(calc_map_type_and_dist);
 int pci_p2pdma_distance_many(struct pci_dev *provider, struct device **clients,
 			     int num_clients, bool verbose)
 {
-	enum pci_p2pdma_map_type map;
-	bool not_supported = false;
+	enum pci_p2pdma_map_type map = PCI_P2PDMA_MAP_BUS_ADDR;
+	enum pci_p2pdma_map_type client_map;
 	struct pci_dev *pci_client;
 	int total_dist = 0;
 	int i, distance;
@@ -1022,21 +1022,30 @@ int pci_p2pdma_distance_many(struct pci_dev *provider, struct device **clients,
 			return -1;
 		}
 
-		map = calc_map_type_and_dist(provider, pci_client, &distance,
-					     verbose);
+		client_map = calc_map_type_and_dist(provider, pci_client,
+						    &distance, verbose);
 
 		pci_dev_put(pci_client);
 
-		if (map == PCI_P2PDMA_MAP_NOT_SUPPORTED)
-			not_supported = true;
+		switch (client_map) {
+		case PCI_P2PDMA_MAP_NOT_SUPPORTED:
+			map = client_map;
+			break;
+		case PCI_P2PDMA_MAP_THRU_HOST_BRIDGE:
+			if (map != PCI_P2PDMA_MAP_NOT_SUPPORTED)
+				map = client_map;
+			break;
+		default:
+			break;
+		}
 
-		if (not_supported && !verbose)
+		if (map == PCI_P2PDMA_MAP_NOT_SUPPORTED && !verbose)
 			break;
 
 		total_dist += distance;
 	}
 
-	if (not_supported)
+	if (map == PCI_P2PDMA_MAP_NOT_SUPPORTED)
 		return -1;
 
 	return total_dist;
