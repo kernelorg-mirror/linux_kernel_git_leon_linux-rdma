@@ -684,7 +684,74 @@ err_alloc_file:
  *    reference acquired with dma_buf_get() by calling dma_buf_put().
  *
  * For the detailed semantics exporters are expected to implement see
- * &dma_buf_ops.
+ * &dma_buf_ops. Whether the exporter may still move or take away the backing
+ * storage after step 3 depends on what both sides implement. See the mapping
+ * lifetime negotiation section below.
+ */
+
+/**
+ * DOC: mapping lifetime negotiation
+ *
+ * Nearly everything in DMA-buf is optional. No flag or enum says whether the
+ * exporter may move or take away the backing storage while an importer holds
+ * a mapping. Each side simply implements the callbacks it can offer, and
+ * dma_buf_pin() settles the result at runtime.
+ *
+ * Out of that optionality the importer sees three main flows. They are named
+ * from the importer's point of view, because each one demands a different
+ * capability of its hardware:
+ *
+ * - Pinned: the memory is never taken away. The importer offers no way
+ *   to stop DMA.
+ * - Revoked: the storage never moves, but the exporter may take it away. The
+ *   importer must be able to stop DMA, and may hit user visible errors while
+ *   doing so.
+ * - Movable: the exporter may relocate the storage at any time. The importer
+ *   must be able to pause DMA, and must raise no error while the storage is
+ *   moving.
+ *
+ * An importer reaches its flow like this:
+ *
+ * 1. Attach with dma_buf_dynamic_attach(). Leaving out the optional
+ *    &dma_buf_attach_ops.invalidate_mappings callback pins the buffer for as
+ *    long as the attachment exists.
+ * 2. Call dma_buf_pin() under the reservation lock.
+ * 3. On failure, run the movable flow or give up.
+ * 4. On success, the flow is the revoked one if the optional
+ *    &dma_buf_attach_ops.invalidate_mappings is implemented, and the pinned
+ *    one if it is not.
+ *
+ * Pinned flow:
+ *
+ * - Exporter: implement &dma_buf_ops.pin and &dma_buf_ops.unpin to hold the
+ *   storage still on request. An exporter whose storage never moves implements
+ *   neither, and dma_buf_pin() then succeeds on its own. An exporter which
+ *   refuses to be pinned implements &dma_buf_ops.pin and fails it.
+ * - Importer: nothing more. The mapping stays valid until the importer unmaps.
+ *
+ * Revoked flow:
+ *
+ * - Exporter: answer dma_buf_pin() as above. Call
+ *   dma_buf_invalidate_mappings() when the storage goes away and fail
+ *   &dma_buf_ops.map_dma_buf while it is gone. The two waits which complete a
+ *   revocation are described in dma_buf_invalidate_mappings().
+ * - Importer: &dma_buf_attach_ops.invalidate_mappings has to unmap within
+ *   bounded time and drop the pin.
+ *
+ * Movable flow:
+ *
+ * - Exporter: call dma_buf_invalidate_mappings() before each move, then wait
+ *   for the &dma_buf.resv fences. &dma_buf_ops.pin and &dma_buf_ops.unpin play
+ *   no part here.
+ * - Importer: hold no pin. &dma_buf_attach_ops.invalidate_mappings drops the
+ *   cached mapping and has to lead to dma_buf_unmap_attachment() within
+ *   bounded time. It need not stop the hardware, because access runs until the
+ *   importer's &dma_buf.resv fences retire. The importer maps again before the
+ *   next DMA.
+ *
+ * &dma_buf_ops.attach is the best place for an exporter to turn an importer
+ * away, because the importer can still fall back to another flow and attach
+ * again.
  */
 
 /**
