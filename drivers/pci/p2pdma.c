@@ -1016,7 +1016,7 @@ static unsigned long map_types_idx(struct pci_dev *client)
  */
 static_assert(PCI_P2PDMA_MAP_THRU_HOST_BRIDGE < 16);
 
-static unsigned long
+VISIBLE_IF_KUNIT unsigned long
 pci_p2pdma_map_types_pack(const enum pci_p2pdma_map_type *type)
 {
 	unsigned long val = 0;
@@ -1027,12 +1027,14 @@ pci_p2pdma_map_types_pack(const enum pci_p2pdma_map_type *type)
 
 	return val;
 }
+EXPORT_SYMBOL_IF_KUNIT(pci_p2pdma_map_types_pack);
 
-static enum pci_p2pdma_map_type
+VISIBLE_IF_KUNIT enum pci_p2pdma_map_type
 pci_p2pdma_map_types_unpack(unsigned long val, unsigned int tlp_flags)
 {
 	return (val >> (tlp_flags * 4)) & 0xf;
 }
+EXPORT_SYMBOL_IF_KUNIT(pci_p2pdma_map_types_unpack);
 
 /*
  * Calculate the P2PDMA mapping type and distance between two PCI devices.
@@ -1081,7 +1083,7 @@ pci_p2pdma_map_types_unpack(unsigned long val, unsigned int tlp_flags)
  * ports per above. If the device is not in the whitelist, return
  * PCI_P2PDMA_MAP_NOT_SUPPORTED.
  */
-static enum pci_p2pdma_map_type
+VISIBLE_IF_KUNIT enum pci_p2pdma_map_type
 calc_map_type_and_dist(struct pci_dev *provider, struct pci_dev *client,
 		int *dist, unsigned int tlp_flags, bool verbose)
 {
@@ -1267,6 +1269,7 @@ done:
 	}
 	return map_type[tlp_flags];
 }
+EXPORT_SYMBOL_IF_KUNIT(calc_map_type_and_dist);
 
 /**
  * pci_p2pdma_distance_many - Determine the cumulative distance between
