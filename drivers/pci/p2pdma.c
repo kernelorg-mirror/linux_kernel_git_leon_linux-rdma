@@ -519,11 +519,12 @@ enum pci_acs_p2pdma_state {
 	PCI_ACS_P2PDMA_NOT_SUPPORTED,
 	PCI_ACS_P2PDMA_DIRECT,
 	PCI_ACS_P2PDMA_REDIRECT,
+	PCI_ACS_P2PDMA_BLOCKED,
 };
 
 /*
  * Decide how a peer-to-peer Request at an ACS-capable ingress port routes,
- * from that port's ACS Control register.
+ * from that port's ACS Control register and the Request's Address Type.
  *
  * Linux does not read the Egress Control Vector, so Egress Control is treated
  * conservatively as a redirect. Per PCIe r7.0 Table 6-11 the outcomes it
@@ -533,6 +534,18 @@ enum pci_acs_p2pdma_state {
 static enum pci_acs_p2pdma_state
 pci_acs_p2pdma_request(u16 ctrl, unsigned int tlp_flags)
 {
+	if (tlp_flags & PCI_P2PDMA_TLP_TRANSLATED) {
+		/*
+		 * PCIe r7.0 sec 6.12.1.1: Translation Blocking makes every
+		 * Upstream Memory Request whose Address Type is not
+		 * Untranslated an ACS Violation, taking precedence over the
+		 * P2P controls. Sec 7.7.12.5: Direct Translated P2P "is
+		 * ignored if ACS Translation Blocking Enable is 1b".
+		 */
+		if (ctrl & PCI_ACS_TB)
+			return PCI_ACS_P2PDMA_BLOCKED;
+	}
+
 	return ctrl & (PCI_ACS_RR | PCI_ACS_EC) ?
 		PCI_ACS_P2PDMA_REDIRECT : PCI_ACS_P2PDMA_DIRECT;
 }
@@ -572,6 +585,35 @@ static bool pci_acs_p2pdma_ctrl(struct pci_dev *pdev, u16 *ctrl)
 	return !pci_read_config_word(pdev, pos + PCI_ACS_CTRL, ctrl);
 }
 
+/*
+ * Report whether any port between @client and @divergence rejects Translated
+ * addresses. @common bounds the walk; @divergence itself is read along with
+ * the routing controls. A port whose ACS Control cannot be read counts as
+ * blocking, which withdraws only the Translated classes because an
+ * Untranslated Request is routed at the divergence.
+ */
+static bool pci_p2pdma_path_blocks_translation(struct pci_dev *client,
+					       struct pci_dev *divergence,
+					       struct pci_dev *common)
+{
+	struct pci_dev *pdev;
+	u16 ctrl;
+
+	for (pdev = pci_upstream_bridge(client); pdev && pdev != common;
+	     pdev = pci_upstream_bridge(pdev)) {
+		if (pdev == divergence)
+			continue;
+
+		if (!pci_acs_p2pdma_ctrl(pdev, &ctrl))
+			return true;
+
+		if (ctrl & PCI_ACS_TB)
+			return true;
+	}
+
+	return false;
+}
+
 static void seq_buf_print_bus_devfn(struct seq_buf *buf, struct pci_dev *pdev)
 {
 	if (!buf)
@@ -590,13 +632,34 @@ static void seq_buf_print_bus_devfn(struct seq_buf *buf, struct pci_dev *pdev)
  *		than upstream, so it is where the Request controls apply.
  * @cpl_ctrl:	ACS Control of the provider-side divergence port, likewise for
  *		the Completions travelling back.
+ * @tb_below:	A port between the client and the divergence blocks Translated
+ *		addresses.
  * @unreadable:	First port whose ACS Control could not be read, if any.
  */
 struct pci_p2pdma_acs_path {
 	u16 req_ctrl;
 	u16 cpl_ctrl;
+	bool tb_below;
 	struct pci_dev *unreadable;
 };
+
+/*
+ * ACS Translation Blocking is not a routing control, so unlike the redirect
+ * controls it is not decided at the divergence alone. PCIe r7.0 sec 6.12.1.1
+ * has every Downstream Port check the Address Type of each Upstream Memory
+ * Request it receives, ahead of "any applicable ACS P2P control mechanisms".
+ * A port below the divergence cannot redirect the Request anywhere it was not
+ * already going, but it can still reject a Translated address.
+ */
+static enum pci_acs_p2pdma_state
+pci_p2pdma_request_state(const struct pci_p2pdma_acs_path *path,
+			 unsigned int tlp_flags)
+{
+	if (tlp_flags & PCI_P2PDMA_TLP_TRANSLATED && path->tb_below)
+		return PCI_ACS_P2PDMA_BLOCKED;
+
+	return pci_acs_p2pdma_request(path->req_ctrl, tlp_flags);
+}
 
 /*
  * Combine both directions into a mapping type. Only a path that routes the
@@ -607,11 +670,23 @@ static enum pci_p2pdma_map_type
 pci_p2pdma_route(const struct pci_p2pdma_acs_path *path,
 		 unsigned int tlp_flags)
 {
+	enum pci_acs_p2pdma_state req;
+
 	if (path->unreadable)
 		return PCI_P2PDMA_MAP_NOT_SUPPORTED;
 
-	if (pci_acs_p2pdma_request(path->req_ctrl, tlp_flags) ==
-		    PCI_ACS_P2PDMA_DIRECT &&
+	req = pci_p2pdma_request_state(path, tlp_flags);
+
+	/*
+	 * Translation Blocking rejects the Address Type rather than the
+	 * target, so a blocked Request stays blocked however it is addressed.
+	 * No host bridge fallback keeps a Translated address working; the
+	 * caller has to issue a different kind of Request instead.
+	 */
+	if (req == PCI_ACS_P2PDMA_BLOCKED)
+		return PCI_P2PDMA_MAP_NOT_SUPPORTED;
+
+	if (req == PCI_ACS_P2PDMA_DIRECT &&
 	    pci_acs_p2pdma_completion(path->cpl_ctrl, tlp_flags) ==
 		    PCI_ACS_P2PDMA_DIRECT)
 		return PCI_P2PDMA_MAP_BUS_ADDR;
@@ -640,12 +715,19 @@ static void pci_p2pdma_warn_path(struct pci_dev *client,
 		return;
 	}
 
+	if (pci_p2pdma_request_state(path, tlp_flags) ==
+	    PCI_ACS_P2PDMA_BLOCKED) {
+		pci_warn(client,
+			 "ACS Translation Blocking rejects Translated Requests to provider %s\n",
+			 pci_name(provider));
+		return;
+	}
+
 	seq_buf_init(&acs_list, buf, sizeof(buf));
 	if (pci_acs_p2pdma_completion(path->cpl_ctrl, tlp_flags) !=
 	    PCI_ACS_P2PDMA_DIRECT)
 		seq_buf_print_bus_devfn(&acs_list, a_child);
-	if (pci_acs_p2pdma_request(path->req_ctrl, tlp_flags) !=
-	    PCI_ACS_P2PDMA_DIRECT)
+	if (pci_p2pdma_request_state(path, tlp_flags) != PCI_ACS_P2PDMA_DIRECT)
 		seq_buf_print_bus_devfn(&acs_list, b_child);
 
 	/* Drop the final semicolon; the list is not empty here. */
@@ -864,8 +946,11 @@ pci_p2pdma_map_types_unpack(unsigned long val, unsigned int tlp_flags)
  * redirection setting of the ports along the path.
  *
  * The client initiates Requests to provider memory. At the path divergence,
- * check Request Redirect and Egress Control on the client-side port, and
- * Completion Redirect for read Completions on the provider-side port.
+ * check Request Redirect, Egress Control, Translation Blocking and Direct
+ * Translated P2P on the client-side port, and Completion Redirect for read
+ * Completions on the provider-side port. Translation Blocking is checked on
+ * every client-side port instead, because it rejects a Request rather than
+ * routing it.
  *
  * Those controls apply to different TLPs, so every class named by &enum
  * pci_p2pdma_tlp_flags is decided from the one walk and cached together;
@@ -873,8 +958,8 @@ pci_p2pdma_map_types_unpack(unsigned long val, unsigned int tlp_flags)
  *
  * If ACS redirects traffic at either divergence port, return
  * PCI_P2PDMA_MAP_THRU_HOST_BRIDGE. If the ACS Control register cannot be
- * read, return PCI_P2PDMA_MAP_NOT_SUPPORTED. Otherwise, return
- * PCI_P2PDMA_MAP_BUS_ADDR.
+ * read, or Translation Blocking rejects the class being asked about, return
+ * PCI_P2PDMA_MAP_NOT_SUPPORTED. Otherwise, return PCI_P2PDMA_MAP_BUS_ADDR.
  *
  * Any two devices that have a data path that goes through the host bridge
  * will consult a whitelist. If the host bridge is in the whitelist, return
@@ -945,6 +1030,8 @@ check_paths_acs:
 		if (!pci_acs_p2pdma_ctrl(b_child, &path.req_ctrl) &&
 		    !path.unreadable)
 			path.unreadable = b_child;
+		path.tb_below = pci_p2pdma_path_blocks_translation(client,
+								   b_child, a);
 	}
 
 	/*
