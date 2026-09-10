@@ -368,6 +368,9 @@ struct dma_buf {
 	/** @priv: exporter specific private data for this buffer object. */
 	void *priv;
 
+	/** @provider: The peer-to-peer provider backing this buffer. */
+	struct p2pdma_provider *provider;
+
 	/**
 	 * @resv:
 	 *
@@ -501,6 +504,7 @@ struct dma_buf_attachment {
  * @flags:	mode flags for the file
  * @resv:	reservation-object, NULL to allocate default one
  * @priv:	Attach private data of allocator to this buffer
+ * @provider:	Peer-to-peer provider backing the buffer
  *
  * This structure holds the information required to export the buffer. Used
  * with dma_buf_export() only.
@@ -512,6 +516,7 @@ struct dma_buf_export_info {
 	size_t size;
 	int flags;
 	struct dma_resv *resv;
+	struct p2pdma_provider *provider;
 	void *priv;
 };
 

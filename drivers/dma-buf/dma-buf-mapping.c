@@ -6,6 +6,32 @@
 #include <linux/dma-buf-mapping.h>
 #include <linux/dma-resv.h>
 
+/**
+ * dma_buf_p2pdma_map_type - How peer-to-peer traffic to a buffer is routed
+ * @attach:	attachment of the importer that will issue the traffic
+ * @tlp_flags:	&enum pci_p2pdma_tlp_flags describing the TLPs it will issue
+ *
+ * Reports how the PCIe fabric routes @tlp_flags traffic between the buffer
+ * behind @attach and the importer attached to it, so that an importer can
+ * choose the TLP attributes that earn it a direct route before it programs
+ * its hardware.
+ *
+ * Return: the mapping type for @tlp_flags traffic, or PCI_P2PDMA_MAP_NONE
+ * when the exporter named no &struct p2pdma_provider and nothing is known
+ * about the route.
+ */
+enum pci_p2pdma_map_type
+dma_buf_p2pdma_map_type(struct dma_buf_attachment *attach,
+			unsigned int tlp_flags)
+{
+	if (!attach->dmabuf->provider)
+		return PCI_P2PDMA_MAP_NONE;
+
+	return pci_p2pdma_map_type_tlp(attach->dmabuf->provider, attach->dev,
+				       tlp_flags);
+}
+EXPORT_SYMBOL_NS_GPL(dma_buf_p2pdma_map_type, "DMA_BUF");
+
 static struct scatterlist *fill_sg_entry(struct scatterlist *sgl, size_t length,
 					 dma_addr_t addr)
 {
@@ -71,7 +97,6 @@ struct dma_buf_dma {
  * from arrays of physical vectors. This funciton is intended for MMIO memory
  * only.
  * @attach:	[in]	attachment whose scatterlist is to be returned
- * @provider:	[in]	p2pdma provider
  * @phys_vec:	[in]	array of physical vectors
  * @nr_ranges:	[in]	number of entries in phys_vec array
  * @size:	[in]	total size of phys_vec
@@ -85,16 +110,17 @@ struct dma_buf_dma {
  *
  * A mapping must be unmapped by using dma_buf_free_sgt().
  *
- * NOTE: This function is intended for exporters. If direct traffic routing is
- * mandatory exporter should call routing pci_p2pdma_map_type() before calling
- * this function.
+ * NOTE: This function is intended for exporters, and works on MMIO memory
+ * only, so &dma_buf.provider must have been set at export time. If direct
+ * traffic routing is mandatory the exporter should call
+ * pci_p2pdma_map_type() before calling this function.
  */
 struct sg_table *dma_buf_phys_vec_to_sgt(struct dma_buf_attachment *attach,
-					 struct p2pdma_provider *provider,
 					 struct phys_vec *phys_vec,
 					 size_t nr_ranges, size_t size,
 					 enum dma_data_direction dir)
 {
+	struct p2pdma_provider *provider;
 	unsigned int nents, mapped_len = 0;
 	struct dma_buf_dma *dma;
 	struct scatterlist *sgl;
@@ -104,9 +130,10 @@ struct sg_table *dma_buf_phys_vec_to_sgt(struct dma_buf_attachment *attach,
 
 	dma_resv_assert_held(attach->dmabuf->resv);
 
-	if (WARN_ON(!attach || !attach->dmabuf || !provider))
-		/* This function is supposed to work on MMIO memory only */
+	if (WARN_ON(!attach || !attach->dmabuf || !attach->dmabuf->provider))
 		return ERR_PTR(-EINVAL);
+
+	provider = attach->dmabuf->provider;
 
 	dma = kzalloc_obj(*dma);
 	if (!dma)

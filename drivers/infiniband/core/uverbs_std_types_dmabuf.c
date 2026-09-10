@@ -33,9 +33,8 @@ uverbs_dmabuf_map(struct dma_buf_attachment *attachment,
 	if (priv->revoked)
 		return ERR_PTR(-ENODEV);
 
-	ret = dma_buf_phys_vec_to_sgt(attachment, priv->provider,
-				      &priv->phys_vec, 1, priv->phys_vec.len,
-				      dir);
+	ret = dma_buf_phys_vec_to_sgt(attachment, &priv->phys_vec, 1,
+				      priv->phys_vec.len, dir);
 	if (IS_ERR(ret))
 		return ret;
 
@@ -108,7 +107,7 @@ static int UVERBS_HANDLER(UVERBS_METHOD_DMABUF_ALLOC)(
 		return -EINVAL;
 
 	ret = ib_dev->ops.mmap_get_pfns(mmap_entry, &uverbs_dmabuf->phys_vec,
-					&uverbs_dmabuf->provider);
+					&exp_info.provider);
 	if (ret)
 		goto err;
 

@@ -15,7 +15,6 @@ struct vfio_pci_dma_buf {
 	struct list_head dmabufs_elm;
 	size_t size;
 	struct phys_vec *phys_vec;
-	struct p2pdma_provider *provider;
 	u32 nr_ranges;
 	struct kref kref;
 	struct completion comp;
@@ -59,9 +58,8 @@ vfio_pci_dma_buf_map(struct dma_buf_attachment *attachment,
 	if (priv->revoked)
 		return ERR_PTR(-ENODEV);
 
-	ret = dma_buf_phys_vec_to_sgt(attachment, priv->provider,
-				      priv->phys_vec, priv->nr_ranges,
-				      priv->size, dir);
+	ret = dma_buf_phys_vec_to_sgt(attachment, priv->phys_vec,
+				      priv->nr_ranges, priv->size, dir);
 	if (IS_ERR(ret))
 		return ret;
 
@@ -274,7 +272,7 @@ int vfio_pci_core_feature_dma_buf(struct vfio_pci_core_device *vdev, u32 flags,
 	priv->vdev = vdev;
 	priv->nr_ranges = get_dma_buf.nr_ranges;
 	priv->size = length;
-	ret = vdev->pci_ops->get_dmabuf_phys(vdev, &priv->provider,
+	ret = vdev->pci_ops->get_dmabuf_phys(vdev, &exp_info.provider,
 					     get_dma_buf.region_index,
 					     priv->phys_vec, dma_ranges,
 					     priv->nr_ranges);

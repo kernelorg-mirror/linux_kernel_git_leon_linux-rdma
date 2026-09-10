@@ -139,7 +139,6 @@ struct ib_uverbs_dmabuf_file {
 	struct list_head dmabufs_elm;
 	struct rdma_user_mmap_entry *mmap_entry;
 	struct phys_vec phys_vec;
-	struct p2pdma_provider *provider;
 	struct kref kref;
 	struct completion comp;
 	u8 revoked :1;
