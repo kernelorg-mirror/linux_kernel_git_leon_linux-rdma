@@ -3607,6 +3607,7 @@ static int device_private_init(struct device *dev)
 	if (!dev->p)
 		return -ENOMEM;
 	dev->p->device = dev;
+	dev->p->trust_level = DEVICE_TRUST_DISABLED;
 	klist_init(&dev->p->klist_children, klist_children_get,
 		   klist_children_put);
 	INIT_LIST_HEAD(&dev->p->deferred_probe);

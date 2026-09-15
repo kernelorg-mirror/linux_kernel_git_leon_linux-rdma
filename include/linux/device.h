@@ -30,6 +30,7 @@
 #include <linux/device/class.h>
 #include <linux/device/devres.h>
 #include <linux/device/driver.h>
+#include <linux/device/trust.h>
 #include <linux/cleanup.h>
 #include <asm/device.h>
 
@@ -690,6 +691,7 @@ enum struct_device_flags {
  * @removable:  Whether the device can be removed from the system. This
  *              should be set by the subsystem / bus driver that discovered
  *              the device.
+ * @trust_policy: Requested operating policy, resolved before driver probe.
  * @flags:	DEV_FLAG_XXX flags. Use atomic bitfield operations to modify.
  *
  * At the lowest level, every device in a Linux system is represented by an
@@ -793,6 +795,7 @@ struct device {
 	struct device_physical_location *physical_location;
 
 	enum device_removable	removable;
+	enum device_trust_policy trust_policy;
 
 	DECLARE_BITMAP(flags, DEV_FLAG_COUNT);
 };
