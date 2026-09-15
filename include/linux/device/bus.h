@@ -17,6 +17,7 @@
 #include <linux/kobject.h>
 #include <linux/klist.h>
 #include <linux/pm.h>
+#include <linux/device/trust.h>
 
 struct device_driver;
 struct fwnode_handle;
@@ -59,6 +60,9 @@ struct fwnode_handle;
  * @resume:	Called to bring a device on this bus out of sleep mode.
  * @num_vf:	Called to find out how many virtual functions a device on this
  *		bus supports.
+ * @trust_resolve: Resolve a requested trust policy to an active trust level
+ *		immediately before driver probe. Return 0 on success or a
+ *		negative errno. This callback must not enable the device.
  * @dma_configure:	Called to setup DMA configuration on a device on
  *			this bus.
  * @dma_cleanup:	Called to cleanup DMA configuration on a device on
@@ -104,6 +108,10 @@ struct bus_type {
 
 	int (*num_vf)(struct device *dev);
 
+	int (*trust_resolve)(struct device *dev,
+			     const struct device_driver *drv,
+			     enum device_trust_policy policy,
+			     enum device_trust_level *level);
 	int (*dma_configure)(struct device *dev);
 	void (*dma_cleanup)(struct device *dev);
 

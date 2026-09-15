@@ -166,6 +166,10 @@ void bus_remove_driver(struct device_driver *drv);
 void device_release_driver_internal(struct device *dev, const struct device_driver *drv,
 				    struct device *parent);
 
+/* All active trust level transitions are serialized by the device lock. */
+int device_trust_prepare(struct device *dev, const struct device_driver *drv);
+void device_trust_clear(struct device *dev);
+
 void driver_detach(const struct device_driver *drv);
 void driver_deferred_probe_del(struct device *dev);
 void device_set_deferred_probe_reason(const struct device *dev, struct va_format *vaf);
