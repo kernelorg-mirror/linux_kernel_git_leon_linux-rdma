@@ -1879,7 +1879,7 @@ static int iommu_get_def_domain_type(struct iommu_group *group,
 static int iommu_get_default_domain_type(struct iommu_group *group,
 					 int target_type)
 {
-	struct device *untrusted = NULL;
+	struct device *adversarial = NULL;
 	struct group_device *gdev;
 	int driver_type = 0;
 
@@ -1901,14 +1901,15 @@ static int iommu_get_default_domain_type(struct iommu_group *group,
 		driver_type = iommu_get_def_domain_type(group, gdev->dev,
 							driver_type);
 
-		if (dev_is_pci(gdev->dev) && to_pci_dev(gdev->dev)->untrusted) {
+		if (dev_is_pci(gdev->dev) &&
+		    pci_dev_default_is_adversarial(to_pci_dev(gdev->dev))) {
 			/*
-			 * No ARM32 using systems will set untrusted, it cannot
-			 * work.
+			 * No ARM32 using systems select adversarial trust; it
+			 * cannot work.
 			 */
 			if (WARN_ON(IS_ENABLED(CONFIG_ARM_DMA_USE_IOMMU)))
 				return -1;
-			untrusted = gdev->dev;
+			adversarial = gdev->dev;
 		}
 	}
 
@@ -1924,11 +1925,11 @@ static int iommu_get_default_domain_type(struct iommu_group *group,
 			driver_type = IOMMU_DOMAIN_IDENTITY;
 	}
 
-	if (untrusted) {
+	if (adversarial) {
 		if (driver_type && driver_type != IOMMU_DOMAIN_DMA) {
 			dev_err_ratelimited(
-				untrusted,
-				"Device is not trusted, but driver is overriding group %u to %s, refusing to probe.\n",
+				adversarial,
+				"Adversarial device driver overrides group %u to %s, refusing to probe.\n",
 				group->id, iommu_domain_type_str(driver_type));
 			return -1;
 		}

@@ -1733,24 +1733,28 @@ static void set_pcie_cxl(struct pci_dev *dev)
 
 }
 
-static void set_pcie_untrusted(struct pci_dev *dev)
+static void pci_set_default_trust_policy(struct pci_dev *dev)
 {
-	struct pci_dev *parent = pci_upstream_bridge(dev);
+	struct pci_dev *parent = pci_physfn(dev);
+
+	if (parent == dev)
+		parent = pci_upstream_bridge(dev);
 
 	if (!parent)
 		return;
+
 	/*
-	 * If the upstream bridge is untrusted we treat this device as
-	 * untrusted as well.
+	 * Propagate an adversarial topology default to every downstream
+	 * device and from a physical function to its virtual functions.
 	 */
-	if (parent->untrusted) {
-		dev->untrusted = true;
+	if (pci_dev_default_is_adversarial(parent)) {
+		dev->dev.trust_policy = DEVICE_TRUST_POLICY_ADVERSARY;
 		return;
 	}
 
 	if (arch_pci_dev_is_removable(dev)) {
-		pci_dbg(dev, "marking as untrusted\n");
-		dev->untrusted = true;
+		pci_dbg(dev, "setting adversarial trust policy\n");
+		dev->dev.trust_policy = DEVICE_TRUST_POLICY_ADVERSARY;
 	}
 }
 
@@ -2072,7 +2076,7 @@ int pci_setup_device(struct pci_dev *dev)
 
 	set_pcie_cxl(dev);
 
-	set_pcie_untrusted(dev);
+	pci_set_default_trust_policy(dev);
 
 	if (pci_is_pcie(dev))
 		dev->supported_speeds = pcie_get_supported_speeds(dev);

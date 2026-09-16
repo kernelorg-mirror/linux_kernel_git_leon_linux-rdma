@@ -2509,8 +2509,8 @@ static void __init platform_optin_force_iommu(void)
 		return;
 
 	/*
-	 * If Intel-IOMMU is disabled by default, we will apply identity
-	 * map for all devices except those marked as being untrusted.
+	 * If Intel-IOMMU is disabled by default, an external device could
+	 * otherwise receive an identity map despite its adversarial policy.
 	 */
 	if (dmar_policy_off()) {
 		pr_info("Intel-IOMMU force enabled due to platform opt in\n");
@@ -3522,15 +3522,14 @@ static bool intel_iommu_is_attach_deferred(struct device *dev)
 }
 
 /*
- * Check that the device does not live on an external facing PCI port that is
- * marked as untrusted. Such devices should not be able to apply quirks and
- * thus not be able to bypass the IOMMU restrictions.
+ * Check that the device defaults to adversarial operation. Such devices must
+ * not apply quirks that bypass IOMMU restrictions.
  */
 static bool risky_device(struct pci_dev *pdev)
 {
-	if (pdev->untrusted) {
+	if (pci_dev_default_is_adversarial(pdev)) {
 		pci_info(pdev,
-			 "Skipping IOMMU quirk for dev [%04X:%04X] on untrusted PCI link\n",
+			 "Skipping IOMMU quirk for adversarial dev [%04X:%04X]\n",
 			 pdev->vendor, pdev->device);
 		pci_info(pdev, "Please check with your BIOS/Platform vendor about this\n");
 		return true;
