@@ -5,6 +5,8 @@
 
 #include <linux/device.h>
 #include <linux/errno.h>
+#include <linux/export.h>
+#include <kunit/visibility.h>
 
 #include "base.h"
 
@@ -77,3 +79,34 @@ void device_trust_clear(struct device *dev)
 	device_lock_assert(dev);
 	WRITE_ONCE(dev->p->trust_level, DEVICE_TRUST_DISABLED);
 }
+
+/**
+ * device_get_trust_level - Return a device's active trust level
+ * @dev: device to inspect
+ *
+ * The value is stable from the start of DMA configuration through the end of
+ * DMA cleanup. An unbound device has %DEVICE_TRUST_DISABLED as its active
+ * trust level.
+ *
+ * Return: The active trust level for the current bind transaction.
+ */
+enum device_trust_level device_get_trust_level(const struct device *dev)
+{
+	if (!dev->p)
+		return DEVICE_TRUST_DISABLED;
+
+	return READ_ONCE(dev->p->trust_level);
+}
+EXPORT_SYMBOL_IF_KUNIT(device_get_trust_level);
+
+/**
+ * device_is_adversarial - Test whether a device is operated as an adversary
+ * @dev: device to inspect
+ *
+ * Return: True when the active trust level is %DEVICE_TRUST_ADVERSARY.
+ */
+bool device_is_adversarial(const struct device *dev)
+{
+	return device_get_trust_level(dev) == DEVICE_TRUST_ADVERSARY;
+}
+EXPORT_SYMBOL_IF_KUNIT(device_is_adversarial);

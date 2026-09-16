@@ -544,13 +544,22 @@ int device_bind_driver(struct device *dev)
 {
 	int ret;
 
+	/* This path cannot order bus trust enforcement before driver setup. */
+	if (dev->bus && dev->bus->trust_resolve)
+		return -EOPNOTSUPP;
+
+	ret = device_trust_prepare(dev, dev->driver);
+	if (ret)
+		return ret;
+
 	ret = driver_sysfs_add(dev);
 	if (!ret) {
 		device_links_force_bind(dev);
 		driver_bound(dev);
-	}
-	else
+	} else {
 		bus_notify(dev, BUS_NOTIFY_DRIVER_NOT_BOUND);
+		device_trust_clear(dev);
+	}
 	return ret;
 }
 EXPORT_SYMBOL_GPL(device_bind_driver);

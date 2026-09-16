@@ -2,6 +2,10 @@
 #ifndef _DEVICE_TRUST_H_
 #define _DEVICE_TRUST_H_
 
+#include <linux/types.h>
+
+struct device;
+
 /**
  * enum device_trust_level - active trust level for a device
  * @DEVICE_TRUST_DISABLED: The device cannot be operated by a driver
@@ -32,5 +36,8 @@ enum device_trust_policy {
 	DEVICE_TRUST_POLICY_ADVERSARY,
 	DEVICE_TRUST_POLICY_FULL,
 };
+
+enum device_trust_level device_get_trust_level(const struct device *dev);
+bool device_is_adversarial(const struct device *dev);
 
 #endif /* _DEVICE_TRUST_H_ */
