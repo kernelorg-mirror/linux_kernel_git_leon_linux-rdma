@@ -222,7 +222,9 @@ static int gameport_bind_driver(struct gameport *gameport, struct gameport_drive
 		return -ENODEV;
 	}
 
+	device_lock(&gameport->dev);
 	error = device_bind_driver(&gameport->dev);
+	device_unlock(&gameport->dev);
 	if (error) {
 		dev_warn(&gameport->dev,
 			 "device_bind_driver() failed for %s (%s) and %s, error: %d\n",
