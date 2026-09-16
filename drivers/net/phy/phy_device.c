@@ -1791,8 +1791,11 @@ int phy_attach_direct(struct net_device *dev, struct phy_device *phydev,
 
 	if (phydev->is_genphy_driven) {
 		err = d->driver->probe(d);
-		if (err >= 0)
+		if (err >= 0) {
+			device_lock(d);
 			err = device_bind_driver(d);
+			device_unlock(d);
+		}
 
 		if (err)
 			goto error_module_put;
