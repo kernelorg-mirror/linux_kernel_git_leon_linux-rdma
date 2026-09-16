@@ -91,7 +91,9 @@ static int serio_bind_driver(struct serio *serio, struct serio_driver *drv)
 			return -ENODEV;
 		}
 
+		device_lock(&serio->dev);
 		error = device_bind_driver(&serio->dev);
+		device_unlock(&serio->dev);
 		if (error) {
 			dev_warn(&serio->dev,
 				 "device_bind_driver() failed for %s (%s) and %s, error: %d\n",
