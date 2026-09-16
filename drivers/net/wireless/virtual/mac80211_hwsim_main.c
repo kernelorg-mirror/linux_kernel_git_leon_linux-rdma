@@ -5724,7 +5724,9 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 		goto failed_drvdata;
 	}
 	data->dev->driver = &mac80211_hwsim_driver.driver;
+	device_lock(data->dev);
 	err = device_bind_driver(data->dev);
+	device_unlock(data->dev);
 	if (err != 0) {
 		pr_debug("mac80211_hwsim: device_bind_driver failed (%d)\n",
 		       err);
