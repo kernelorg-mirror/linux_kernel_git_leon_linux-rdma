@@ -612,6 +612,24 @@ static inline struct pci_dev *pci_physfn(struct pci_dev *dev)
 struct pci_dev *pci_alloc_dev(struct pci_bus *bus);
 
 #define	to_pci_dev(n) container_of(n, struct pci_dev, dev)
+
+static inline bool
+pci_dev_default_is_adversarial(const struct pci_dev *pdev)
+{
+	return pdev->dev.trust_policy == DEVICE_TRUST_POLICY_ADVERSARY;
+}
+
+static inline bool pci_dev_ats_permitted(const struct pci_dev *pdev)
+{
+	enum device_trust_level level = device_get_trust_level(&pdev->dev);
+
+	if (level == DEVICE_TRUST_DISABLED)
+		return !pci_dev_default_is_adversarial(pdev) &&
+		       pdev->dev.trust_policy != DEVICE_TRUST_POLICY_DISABLED;
+
+	return level == DEVICE_TRUST_FULL;
+}
+
 #define for_each_pci_dev(d) while ((d = pci_get_device(PCI_ANY_ID, PCI_ANY_ID, d)) != NULL)
 #define for_each_pci_dev_reverse(d) \
 	while ((d = pci_get_device_reverse(PCI_ANY_ID, PCI_ANY_ID, d)) != NULL)
