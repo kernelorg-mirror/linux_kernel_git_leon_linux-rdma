@@ -334,8 +334,12 @@ found:
 	dev->dev.driver = &drv->link.driver;
 	if (pnp_bus_type.probe(&dev->dev))
 		goto err_out;
-	if (device_bind_driver(&dev->dev))
+	device_lock(&dev->dev);
+	if (device_bind_driver(&dev->dev)) {
+		device_unlock(&dev->dev);
 		goto err_out;
+	}
+	device_unlock(&dev->dev);
 
 	return dev;
 
