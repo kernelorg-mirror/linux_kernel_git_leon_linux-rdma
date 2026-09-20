@@ -38,6 +38,7 @@
 #include <linux/export.h>
 #include <linux/delay.h>
 #include <linux/dma-buf.h>
+#include <linux/dma-buf-mapping.h>
 #include <linux/dma-resv.h>
 #include <rdma/frmr_pools.h>
 #include <rdma/ib_umem_odp.h>
@@ -46,6 +47,52 @@
 #include "umr.h"
 #include "data_direct.h"
 #include "dmah.h"
+
+MODULE_IMPORT_NS("DMA_BUF");
+
+bool mlx5_umem_needs_ats(struct mlx5_ib_dev *dev, struct ib_umem *umem,
+			 int access_flags)
+{
+	struct dma_buf_attachment *attach;
+	bool ats;
+
+	if (!MLX5_CAP_GEN(dev->mdev, ats) || !umem->is_dmabuf)
+		return false;
+
+	/*
+	 * The Completer decides whether its Completions carry Relaxed
+	 * Ordering, and only a Request that asked for it can expect them to.
+	 */
+	if (!(access_flags & IB_ACCESS_RELAXED_ORDERING))
+		return false;
+
+	attach = to_ib_umem_dmabuf(umem)->attach;
+
+	dma_resv_lock(attach->dmabuf->resv, NULL);
+	switch (dma_buf_p2pdma_map_type(attach, 0)) {
+	case PCI_P2PDMA_MAP_NONE:
+		/* Nothing is known about the route, so fall back to the bet. */
+		ats = true;
+		break;
+	case PCI_P2PDMA_MAP_BUS_ADDR:
+		/*
+		 * The path is routed directly already and is programmed with
+		 * the peer's bus addresses. Those are not translatable, so
+		 * ATS would be wrong as well as pointless.
+		 */
+		ats = false;
+		break;
+	default:
+		ats = dma_buf_p2pdma_map_type(attach,
+					      PCI_P2PDMA_TLP_TRANSLATED |
+						      PCI_P2PDMA_TLP_RELAXED_CPL) ==
+		      PCI_P2PDMA_MAP_BUS_ADDR;
+		break;
+	}
+	dma_resv_unlock(attach->dmabuf->resv);
+
+	return ats;
+}
 
 static int mkey_max_umr_order(struct mlx5_ib_dev *dev)
 {
