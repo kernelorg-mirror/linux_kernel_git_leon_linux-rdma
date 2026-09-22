@@ -6,6 +6,7 @@
 #include <linux/device.h>
 #include <linux/errno.h>
 #include <linux/export.h>
+#include <linux/sysfs.h>
 #include <kunit/visibility.h>
 
 #include "base.h"
@@ -45,6 +46,67 @@ static int device_trust_resolve_default(enum device_trust_policy policy,
 		return -EINVAL;
 	}
 }
+
+static const char * const device_trust_policy_names[] = {
+	[DEVICE_TRUST_POLICY_DEFAULT] = "default",
+	[DEVICE_TRUST_POLICY_DISABLED] = "disabled",
+	[DEVICE_TRUST_POLICY_ADVERSARY] = "adversary",
+	[DEVICE_TRUST_POLICY_FULL] = "full",
+};
+
+static ssize_t trust_policy_show(struct device *dev,
+				 const struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%s\n",
+			  device_trust_policy_names[READ_ONCE(dev->trust_policy)]);
+}
+
+static int device_trust_policy_parse(const char *buf,
+				     enum device_trust_policy *policy)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(device_trust_policy_names); i++) {
+		if (!sysfs_streq(buf, device_trust_policy_names[i]))
+			continue;
+
+		*policy = i;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static ssize_t trust_policy_store(struct device *dev,
+				  const struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	enum device_trust_policy policy;
+	int ret;
+
+	ret = device_trust_policy_parse(buf, &policy);
+	if (ret)
+		return ret;
+
+	device_lock(dev);
+	if (dev_can_match(dev))
+		ret = -EBUSY;
+	else
+		WRITE_ONCE(dev->trust_policy, policy);
+	device_unlock(dev);
+
+	return ret ? ret : count;
+}
+static DEVICE_ATTR_RW(trust_policy);
+
+static struct attribute *device_trust_attrs[] = {
+	&dev_attr_trust_policy.attr,
+	NULL,
+};
+
+const struct attribute_group device_trust_attr_group = {
+	.attrs = device_trust_attrs,
+};
 
 int device_trust_prepare(struct device *dev, const struct device_driver *drv)
 {

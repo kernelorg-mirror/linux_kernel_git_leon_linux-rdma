@@ -81,6 +81,13 @@ hostile device, such as peer-to-peer DMA, device memory, PASID/SVA, or paths
 that bypass the DMA API.  General bus and IOMMU containment should remain in
 their respective cores rather than be duplicated in each driver.
 
+Userspace policy
+================
+
+The ``trust_policy`` device attribute exposes requested policy as ``default``,
+``disabled``, ``adversary``, or ``full``.  Policy can change only before the
+device is probed and remains fixed after probing starts.
+
 Independent security properties
 ===============================
 

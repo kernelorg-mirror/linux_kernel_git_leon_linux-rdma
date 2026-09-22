@@ -608,16 +608,18 @@ struct pci_dev *pci_alloc_dev(struct pci_bus *bus);
 static inline bool
 pci_dev_default_is_adversarial(const struct pci_dev *pdev)
 {
-	return pdev->dev.trust_policy == DEVICE_TRUST_POLICY_ADVERSARY;
+	return READ_ONCE(pdev->dev.trust_policy) ==
+	       DEVICE_TRUST_POLICY_ADVERSARY;
 }
 
 static inline bool pci_dev_ats_permitted(const struct pci_dev *pdev)
 {
 	enum device_trust_level level = device_get_trust_level(&pdev->dev);
+	enum device_trust_policy policy = READ_ONCE(pdev->dev.trust_policy);
 
 	if (level == DEVICE_TRUST_DISABLED)
-		return !pci_dev_default_is_adversarial(pdev) &&
-		       pdev->dev.trust_policy != DEVICE_TRUST_POLICY_DISABLED;
+		return policy != DEVICE_TRUST_POLICY_ADVERSARY &&
+		       policy != DEVICE_TRUST_POLICY_DISABLED;
 
 	return level == DEVICE_TRUST_FULL;
 }

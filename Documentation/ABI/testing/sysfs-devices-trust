@@ -1,0 +1,16 @@
+What:		/sys/devices/.../trust_policy
+Date:		September 2026
+Contact:	driver-core@lists.linux.dev
+Description:
+		(RW) The requested trust policy for the device. The initial
+		value may be selected by the bus before the device is
+		registered; otherwise it is "default". The policy is resolved
+		to an active trust level before the device is probed.
+
+		The values are "default", "disabled", "adversary", and
+		"full". "default" lets the bus select the active trust level.
+		"disabled" prevents a functional driver from binding.
+		"adversary" requires operation with restrictions for a
+		potentially malicious device. "full" requests normal operation.
+
+		The policy can be changed only before the device is probed.

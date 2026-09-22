@@ -2987,10 +2987,14 @@ static int device_add_attrs(struct device *dev)
 	if (error)
 		goto err_remove_type_groups;
 
+	error = device_add_group(dev, &device_trust_attr_group);
+	if (error)
+		goto err_remove_dev_groups;
+
 	if (device_supports_offline(dev) && !dev_offline_disabled(dev)) {
 		error = device_create_file(dev, &dev_attr_online);
 		if (error)
-			goto err_remove_dev_groups;
+			goto err_remove_dev_trust_group;
 	}
 
 	if (fw_devlink_flags && !fw_devlink_is_permissive() && dev->fwnode) {
@@ -3020,6 +3024,8 @@ static int device_add_attrs(struct device *dev)
 	device_remove_file(dev, &dev_attr_waiting_for_supplier);
  err_remove_dev_online:
 	device_remove_file(dev, &dev_attr_online);
+ err_remove_dev_trust_group:
+	device_remove_group(dev, &device_trust_attr_group);
  err_remove_dev_groups:
 	device_remove_groups(dev, dev->groups);
  err_remove_type_groups:
@@ -3045,6 +3051,7 @@ static void device_remove_attrs(struct device *dev)
 	device_remove_file(dev, &dev_attr_removable);
 	device_remove_file(dev, &dev_attr_waiting_for_supplier);
 	device_remove_file(dev, &dev_attr_online);
+	device_remove_group(dev, &device_trust_attr_group);
 	device_remove_groups(dev, dev->groups);
 
 	if (type)
