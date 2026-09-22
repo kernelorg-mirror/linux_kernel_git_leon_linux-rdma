@@ -88,6 +88,10 @@ The ``trust_policy`` device attribute exposes requested policy as ``default``,
 ``disabled``, ``adversary``, or ``full``.  Policy can change only before the
 device is probed and remains fixed after probing starts.
 
+The read-only ``trust`` device attribute reports the active trust level as
+``disabled``, ``adversary``, or ``full``.  An unbound device reports
+``disabled``.
+
 Independent security properties
 ===============================
 

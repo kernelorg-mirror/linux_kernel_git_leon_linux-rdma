@@ -54,6 +54,20 @@ static const char * const device_trust_policy_names[] = {
 	[DEVICE_TRUST_POLICY_FULL] = "full",
 };
 
+static const char * const device_trust_level_names[] = {
+	[DEVICE_TRUST_DISABLED] = "disabled",
+	[DEVICE_TRUST_ADVERSARY] = "adversary",
+	[DEVICE_TRUST_FULL] = "full",
+};
+
+static ssize_t trust_show(struct device *dev,
+			  const struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%s\n",
+			  device_trust_level_names[device_get_trust_level(dev)]);
+}
+static DEVICE_ATTR_RO(trust);
+
 static ssize_t trust_policy_show(struct device *dev,
 				 const struct device_attribute *attr, char *buf)
 {
@@ -100,6 +114,7 @@ static ssize_t trust_policy_store(struct device *dev,
 static DEVICE_ATTR_RW(trust_policy);
 
 static struct attribute *device_trust_attrs[] = {
+	&dev_attr_trust.attr,
 	&dev_attr_trust_policy.attr,
 	NULL,
 };

@@ -1,3 +1,12 @@
+What:		/sys/devices/.../trust
+Date:		September 2026
+Contact:	driver-core@lists.linux.dev
+Description:
+		(RO) The active trust level for the device. The values are
+		"disabled", "adversary", and "full". An unbound device
+		reports "disabled". A bound device reports the level resolved
+		by driver core before probe and used for the complete binding.
+
 What:		/sys/devices/.../trust_policy
 Date:		September 2026
 Contact:	driver-core@lists.linux.dev
