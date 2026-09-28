@@ -207,7 +207,8 @@ static inline struct pci_dev *pci_p2pmem_find(struct device *client)
  * @dev: Client device that initiates the transfer
  *
  * Same as pci_p2pdma_map_type_tlp() for a client issuing strictly ordered
- * Requests that carry an Untranslated address.
+ * Requests. Their Address Type is Untranslated unless the client enables ATS
+ * for the whole device.
  */
 static inline enum pci_p2pdma_map_type
 pci_p2pdma_map_type(struct p2pdma_provider *provider, struct device *dev)
