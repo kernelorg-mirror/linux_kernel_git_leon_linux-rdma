@@ -28,6 +28,33 @@ struct p2pdma_provider {
 	u64 bus_offset;
 };
 
+/**
+ * enum pci_p2pdma_tlp_flags - Properties of the TLPs a client will issue
+ *
+ * These describe the traffic rather than the topology, and select which ACS
+ * controls apply along the peer-to-peer path. A value of 0 means strictly
+ * ordered Requests carrying an Untranslated address.
+ *
+ * @PCI_P2PDMA_TLP_TRANSLATED: Requests carry an ATS Translated address. PCIe
+ *	r7.0 sec 6.12.3 routes those to the peer regardless of ACS P2P Request
+ *	Redirect and ACS P2P Egress Control wherever ACS Direct Translated P2P
+ *	is enabled.
+ * @PCI_P2PDMA_TLP_RELAXED_CPL: The provider returns Completions with the
+ *	Relaxed Ordering attribute set. PCIe r7.0 sec 6.12.1.1 never redirects
+ *	those, so ACS P2P Completion Redirect does not gate the path. The
+ *	Completer chooses this attribute and the specification does not require
+ *	it to copy Relaxed Ordering from the Request into the Completion, so a
+ *	caller passing this flag asserts that its provider does.
+ */
+enum pci_p2pdma_tlp_flags {
+	PCI_P2PDMA_TLP_TRANSLATED	= 1 << 0,
+	PCI_P2PDMA_TLP_RELAXED_CPL	= 1 << 1,
+};
+
+/* Every combination of the flags above selects one routing class. */
+#define PCI_P2PDMA_TLP_CLASSES \
+	((PCI_P2PDMA_TLP_TRANSLATED | PCI_P2PDMA_TLP_RELAXED_CPL) + 1)
+
 enum pci_p2pdma_map_type {
 	/*
 	 * PCI_P2PDMA_MAP_UNKNOWN: Used internally as an initial state before
@@ -86,8 +113,9 @@ int pci_p2pdma_enable_store(const char *page, struct pci_dev **p2p_dev,
 			    bool *use_p2pdma);
 ssize_t pci_p2pdma_enable_show(char *page, struct pci_dev *p2p_dev,
 			       bool use_p2pdma);
-enum pci_p2pdma_map_type pci_p2pdma_map_type(struct p2pdma_provider *provider,
-					     struct device *dev);
+enum pci_p2pdma_map_type
+pci_p2pdma_map_type_tlp(struct p2pdma_provider *provider, struct device *dev,
+			unsigned int tlp_flags);
 #else /* CONFIG_PCI_P2PDMA */
 static inline int pcim_p2pdma_init(struct pci_dev *pdev)
 {
@@ -150,7 +178,8 @@ static inline ssize_t pci_p2pdma_enable_show(char *page,
 	return sprintf(page, "none\n");
 }
 static inline enum pci_p2pdma_map_type
-pci_p2pdma_map_type(struct p2pdma_provider *provider, struct device *dev)
+pci_p2pdma_map_type_tlp(struct p2pdma_provider *provider, struct device *dev,
+			unsigned int tlp_flags)
 {
 	return PCI_P2PDMA_MAP_NOT_SUPPORTED;
 }
@@ -166,6 +195,20 @@ static inline int pci_p2pdma_distance(struct pci_dev *provider,
 static inline struct pci_dev *pci_p2pmem_find(struct device *client)
 {
 	return pci_p2pmem_find_many(&client, 1);
+}
+
+/**
+ * pci_p2pdma_map_type - Determine the mapping type for P2PDMA transfers
+ * @provider: P2PDMA provider structure
+ * @dev: Client device that initiates the transfer
+ *
+ * Same as pci_p2pdma_map_type_tlp() for a client issuing strictly ordered
+ * Requests that carry an Untranslated address.
+ */
+static inline enum pci_p2pdma_map_type
+pci_p2pdma_map_type(struct p2pdma_provider *provider, struct device *dev)
+{
+	return pci_p2pdma_map_type_tlp(provider, dev, 0);
 }
 
 struct pci_p2pdma_map_state {
