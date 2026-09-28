@@ -4561,6 +4561,8 @@ static int mlx5_ib_stage_init_init(struct mlx5_ib_dev *dev)
 	if (err && err != -EOPNOTSUPP)
 		goto err_dd;
 
+	pcim_p2pdma_set_ats_per_mapping(mdev->pdev);
+
 	mlx5_cmd_init_async_ctx(mdev, &dev->async_ctx);
 
 	return 0;
