@@ -119,6 +119,8 @@
 
 #if IS_ENABLED(CONFIG_INFINIBAND)
 #include <rdma/ib_addr.h>
+#include <rdma/ib_umem_odp.h>
+#include <linux/hmm.h>
 #endif
 
 /*

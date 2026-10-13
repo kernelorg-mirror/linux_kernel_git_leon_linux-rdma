@@ -10,6 +10,8 @@ use crate::{
 };
 use core::marker::PhantomData;
 
+#[cfg(all(CONFIG_INFINIBAND_ON_DEMAND_PAGING, CONFIG_INFINIBAND_VIRT_DMA))]
+pub mod odp;
 #[cfg(CONFIG_INFINIBAND_VIRT_DMA)]
 pub mod virt_dma;
 

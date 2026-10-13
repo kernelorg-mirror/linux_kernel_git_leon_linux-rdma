@@ -32,3 +32,11 @@ __rust_helper unsigned long rust_helper_clear_user(void __user *to, unsigned lon
 {
 	return clear_user(to, n);
 }
+
+__rust_helper unsigned long
+rust_helper_copy_mc_to_kernel_size(void *to, const void *from, size_t size)
+{
+	if (size > UINT_MAX)
+		return size;
+	return copy_mc_to_kernel(to, from, (unsigned int)size);
+}

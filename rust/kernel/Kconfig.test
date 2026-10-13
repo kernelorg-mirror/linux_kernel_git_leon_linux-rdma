@@ -139,3 +139,13 @@ config RUST_SKBUFF_KUNIT_TEST
 	  If unsure, say N.
 
 endif
+config RUST_RDMA_ODP_KUNIT_TEST
+	bool "KUnit tests for Rust on-demand RDMA memory" if !KUNIT_ALL_TESTS
+	depends on KUNIT=y && RUST && INFINIBAND=y
+	depends on INFINIBAND_ON_DEMAND_PAGING && INFINIBAND_VIRT_DMA
+	default KUNIT_ALL_TESTS
+	help
+	  Test bounded copies and atomic accesses through guarded ODP PFNs.
+	  Cover system-page indexing in large-page registrations, unaligned
+	  user ranges and read-only access. The fixtures use owned pages;
+	  they do not exercise faults or require a userspace memory map.
