@@ -517,6 +517,7 @@ static void ib_device_release(struct device *device)
 
 	xa_destroy(&dev->compat_devs);
 	xa_destroy(&dev->client_data);
+	ib_virt_dma_release(dev);
 	kfree_rcu(dev, rcu_head);
 }
 
@@ -3092,21 +3093,6 @@ int ib_del_sub_device_and_put(struct ib_device *sub)
 
 	return 0;
 }
-
-#ifdef CONFIG_INFINIBAND_VIRT_DMA
-int ib_dma_virt_map_sg(struct ib_device *dev, struct scatterlist *sg, int nents)
-{
-	struct scatterlist *s;
-	int i;
-
-	for_each_sg(sg, s, nents, i) {
-		sg_dma_address(s) = (uintptr_t)sg_virt(s);
-		sg_dma_len(s) = s->length;
-	}
-	return nents;
-}
-EXPORT_SYMBOL(ib_dma_virt_map_sg);
-#endif /* CONFIG_INFINIBAND_VIRT_DMA */
 
 static const struct rdma_nl_cbs ibnl_ls_cb_table[RDMA_NL_LS_NUM_OPS] = {
 	[RDMA_NL_LS_OP_RESOLVE] = {

@@ -45,6 +45,7 @@
 #include <uapi/rdma/ib_user_ioctl_verbs.h>
 #include <linux/pci-tph.h>
 #include <rdma/frmr_pools.h>
+#include <rdma/ib_virt_dma.h>
 #include <linux/dma-buf.h>
 
 #define IB_FW_VERSION_NAME_MAX	ETHTOOL_FWVERS_LEN
@@ -2962,6 +2963,7 @@ struct rdma_restrack_root;
 struct ib_device {
 	/* Do not access @dma_device directly from ULP nor from HW drivers. */
 	struct device                *dma_device;
+	struct ib_virt_dma *virt_dma;
 	struct ib_device_ops	     ops;
 	char                          name[IB_DEVICE_NAME_MAX];
 	struct rcu_head rcu_head;
@@ -4361,7 +4363,7 @@ static inline struct page *ib_virt_dma_to_page(u64 dma_addr)
 static inline int ib_dma_mapping_error(struct ib_device *dev, u64 dma_addr)
 {
 	if (ib_uses_virt_dma(dev))
-		return 0;
+		return dma_addr == DMA_MAPPING_ERROR;
 	return dma_mapping_error(dev->dma_device, dma_addr);
 }
 
@@ -4377,7 +4379,7 @@ static inline u64 ib_dma_map_single(struct ib_device *dev,
 				    enum dma_data_direction direction)
 {
 	if (ib_uses_virt_dma(dev))
-		return (uintptr_t)cpu_addr;
+		return ib_virt_dma_map(dev, cpu_addr, size, direction);
 	return dma_map_single(dev->dma_device, cpu_addr, size, direction);
 }
 
@@ -4392,7 +4394,9 @@ static inline void ib_dma_unmap_single(struct ib_device *dev,
 				       u64 addr, size_t size,
 				       enum dma_data_direction direction)
 {
-	if (!ib_uses_virt_dma(dev))
+	if (ib_uses_virt_dma(dev))
+		ib_virt_dma_unmap(dev, addr, size, direction);
+	else
 		dma_unmap_single(dev->dma_device, addr, size, direction);
 }
 
@@ -4411,7 +4415,8 @@ static inline u64 ib_dma_map_page(struct ib_device *dev,
 					 enum dma_data_direction direction)
 {
 	if (ib_uses_virt_dma(dev))
-		return (uintptr_t)(page_address(page) + offset);
+		return ib_virt_dma_map(dev, page_address(page) + offset, size,
+				       direction);
 	return dma_map_page(dev->dma_device, page, offset, size, direction);
 }
 
@@ -4426,7 +4431,9 @@ static inline void ib_dma_unmap_page(struct ib_device *dev,
 				     u64 addr, size_t size,
 				     enum dma_data_direction direction)
 {
-	if (!ib_uses_virt_dma(dev))
+	if (ib_uses_virt_dma(dev))
+		ib_virt_dma_unmap(dev, addr, size, direction);
+	else
 		dma_unmap_page(dev->dma_device, addr, size, direction);
 }
 
@@ -4441,14 +4448,15 @@ static inline void ib_dma_unmap_page(struct ib_device *dev,
  * must not be passed to ib_dma_unmap_bvec().
  *
  * For software RDMA devices (rxe, siw), returns a virtual address
- * and no actual DMA mapping occurs.
+ * and records the range if virtual DMA tracking is enabled.
  */
 static inline u64 ib_dma_map_bvec(struct ib_device *dev,
 				  struct bio_vec *bvec,
 				  enum dma_data_direction direction)
 {
 	if (ib_uses_virt_dma(dev))
-		return (uintptr_t)bvec_virt(bvec);
+		return ib_virt_dma_map(dev, bvec_virt(bvec), bvec->bv_len,
+				       direction);
 	return dma_map_phys(dev->dma_device, bvec_phys(bvec),
 			    bvec->bv_len, direction, 0);
 }
@@ -4460,25 +4468,30 @@ static inline u64 ib_dma_map_bvec(struct ib_device *dev,
  * @size: The size of the region in bytes
  * @direction: The direction of the DMA
  *
- * Releases a DMA mapping created by ib_dma_map_bvec(). For software
- * RDMA devices this is a no-op since no actual mapping occurred.
+ * Releases a DMA mapping created by ib_dma_map_bvec(), including its
+ * range record when virtual DMA tracking is enabled.
  */
 static inline void ib_dma_unmap_bvec(struct ib_device *dev,
 				     u64 addr, size_t size,
 				     enum dma_data_direction direction)
 {
-	if (!ib_uses_virt_dma(dev))
+	if (ib_uses_virt_dma(dev))
+		ib_virt_dma_unmap(dev, addr, size, direction);
+	else
 		dma_unmap_phys(dev->dma_device, addr, size, direction, 0);
 }
 
-int ib_dma_virt_map_sg(struct ib_device *dev, struct scatterlist *sg, int nents);
+int ib_dma_virt_map_sg(struct ib_device *dev, struct scatterlist *sg, int nents,
+		       enum dma_data_direction direction);
+void ib_dma_virt_unmap_sg(struct ib_device *dev, struct scatterlist *sg,
+			  int nents, enum dma_data_direction direction);
 static inline int ib_dma_map_sg_attrs(struct ib_device *dev,
 				      struct scatterlist *sg, int nents,
 				      enum dma_data_direction direction,
 				      unsigned long dma_attrs)
 {
 	if (ib_uses_virt_dma(dev))
-		return ib_dma_virt_map_sg(dev, sg, nents);
+		return ib_dma_virt_map_sg(dev, sg, nents, direction);
 	return dma_map_sg_attrs(dev->dma_device, sg, nents, direction,
 				dma_attrs);
 }
@@ -4488,7 +4501,9 @@ static inline void ib_dma_unmap_sg_attrs(struct ib_device *dev,
 					 enum dma_data_direction direction,
 					 unsigned long dma_attrs)
 {
-	if (!ib_uses_virt_dma(dev))
+	if (ib_uses_virt_dma(dev))
+		ib_dma_virt_unmap_sg(dev, sg, nents, direction);
+	else
 		dma_unmap_sg_attrs(dev->dma_device, sg, nents, direction,
 				   dma_attrs);
 }
@@ -4508,7 +4523,8 @@ static inline int ib_dma_map_sgtable_attrs(struct ib_device *dev,
 	int nents;
 
 	if (ib_uses_virt_dma(dev)) {
-		nents = ib_dma_virt_map_sg(dev, sgt->sgl, sgt->orig_nents);
+		nents = ib_dma_virt_map_sg(dev, sgt->sgl, sgt->orig_nents,
+					   direction);
 		if (!nents)
 			return -EIO;
 		sgt->nents = nents;
@@ -4522,7 +4538,10 @@ static inline void ib_dma_unmap_sgtable_attrs(struct ib_device *dev,
 					      enum dma_data_direction direction,
 					      unsigned long dma_attrs)
 {
-	if (!ib_uses_virt_dma(dev))
+	if (ib_uses_virt_dma(dev))
+		ib_dma_virt_unmap_sg(dev, sgt->sgl, sgt->orig_nents,
+				     direction);
+	else
 		dma_unmap_sgtable(dev->dma_device, sgt, direction, dma_attrs);
 }
 

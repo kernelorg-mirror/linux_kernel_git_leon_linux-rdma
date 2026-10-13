@@ -16,6 +16,10 @@ ib_core-y :=			packer.o ud_header.o verbs.o cq.o rw.o sysfs.o \
 				nldev.o restrack.o counters.o \
 				trace.o lag.o iter.o frmr_pools.o
 
+obj-$(CONFIG_INFINIBAND_VIRT_DMA_KUNIT_TEST) += virt_dma_test.o
+
+ib_core-$(CONFIG_INFINIBAND_VIRT_DMA) += virt_dma.o
+
 ib_core-$(CONFIG_SECURITY_INFINIBAND) += security.o
 ib_core-$(CONFIG_CGROUP_RDMA) += cgroup.o
 ib_core-$(CONFIG_INFINIBAND_USER_MEM) += umem.o umem_dmabuf.o

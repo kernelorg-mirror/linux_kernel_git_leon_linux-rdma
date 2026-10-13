@@ -80,6 +80,17 @@ config INFINIBAND_ADDR_TRANS_CONFIGFS
 
 config INFINIBAND_VIRT_DMA
 	def_bool !HIGHMEM
+	select INTERVAL_TREE
+
+config INFINIBAND_VIRT_DMA_KUNIT_TEST
+	tristate "Virtual DMA mapping tests" if !KUNIT_ALL_TESTS
+	depends on KUNIT && INFINIBAND_VIRT_DMA
+	default KUNIT_ALL_TESTS
+	help
+	  Test tracked virtual DMA ranges, directions and mapping lifetime.
+	  Cover scatterlists, overlapping mappings, bounded atomics and range
+	  revocation, including persistence coverage across mapped resources.
+	  These checks exercise software DMA bookkeeping without RDMA hardware.
 
 if INFINIBAND_USER_ACCESS || !INFINIBAND_USER_ACCESS
 if !UML
