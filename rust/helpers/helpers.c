@@ -80,6 +80,7 @@
 #include "net/device.c"
 #include "net/genetlink.c"
 #include "net/namespace.c"
+#include "net/route.c"
 #include "net/sock.c"
 #include "of.c"
 #include "page.c"

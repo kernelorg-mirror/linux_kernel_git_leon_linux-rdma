@@ -116,6 +116,17 @@ config RUST_UDP_TUNNEL_KUNIT_TEST
 
 	  If unsure, say N.
 
+config RUST_UDP_PACKET_KUNIT_TEST
+	bool "KUnit tests for Rust UDP packet ownership" if !KUNIT_ALL_TESTS
+	depends on INET
+	default KUNIT_ALL_TESTS
+	help
+	  This option tests UDP encapsulation header bounds and the payload
+	  allocation's initialized bytes and aligned network-header space.
+	  These tests are intended for development.
+
+	  If unsure, say N.
+
 config RUST_SKBUFF_KUNIT_TEST
 	bool "KUnit tests for Rust socket buffers" if !KUNIT_ALL_TESTS
 	depends on NET

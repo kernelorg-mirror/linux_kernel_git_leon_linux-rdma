@@ -105,12 +105,42 @@ __rust_helper struct skb_shared_info *rust_helper_skb_shinfo(struct sk_buff *skb
 	return skb_shinfo(skb);
 }
 
+__rust_helper void rust_helper_skb_dst_set(struct sk_buff *skb, struct dst_entry *dst)
+{
+	skb_dst_set(skb, dst);
+}
+
+__rust_helper struct dst_entry *rust_helper_skb_dst(const struct sk_buff *skb)
+{
+	return skb_dst(skb);
+}
+
+__rust_helper void rust_helper_skb_clear_hash(struct sk_buff *skb)
+{
+	skb_clear_hash(skb);
+}
+
 __rust_helper void rust_helper_skb_reset_network_header(struct sk_buff *skb)
 {
 	skb_reset_network_header(skb);
 }
 
+__rust_helper void rust_helper_skb_reset_transport_header(struct sk_buff *skb)
+{
+	skb_reset_transport_header(skb);
+}
+
+__rust_helper void rust_helper_skb_set_protocol(struct sk_buff *skb, __be16 protocol)
+{
+	skb->protocol = protocol;
+}
+
 __rust_helper void rust_helper_skb_orphan(struct sk_buff *skb)
 {
 	skb_orphan(skb);
+}
+
+__rust_helper void rust_helper_skb_dst_drop(struct sk_buff *skb)
+{
+	skb_dst_drop(skb);
 }

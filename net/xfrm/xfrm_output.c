@@ -780,9 +780,10 @@ int xfrm_output(struct sock *sk, struct sk_buff *skb)
 		 * Locally generated packets also require
 		 * the normal XFRM path for L2 header setup,
 		 * as the hardware needs the L2 header to match
-		 * for encryption, so skip direct output as well.
+		 * for encryption. Such packets have no ingress
+		 * interface, even when they have no socket owner.
 		 */
-		if (x->props.mode == XFRM_MODE_TUNNEL && !skb->sk)
+		if (x->props.mode == XFRM_MODE_TUNNEL && !skb->sk && skb->skb_iif)
 			return xfrm_dev_direct_output(sk, x, skb);
 
 		return xfrm_output_resume(sk, skb, 0);

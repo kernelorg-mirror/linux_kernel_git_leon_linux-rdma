@@ -2,6 +2,11 @@
 
 //! Networking.
 
+#[cfg(CONFIG_INET)]
+pub mod ip;
+#[cfg(CONFIG_INET)]
+pub mod udp;
+
 mod device;
 pub use device::{
     Device,

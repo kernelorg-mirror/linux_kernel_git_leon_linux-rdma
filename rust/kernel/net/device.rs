@@ -129,6 +129,22 @@ pub struct DeviceLocation {
 }
 
 impl DeviceLocation {
+    /// Revalidates the device's namespace membership until this RCU guard is dropped.
+    #[cfg(CONFIG_NET_UDP_TUNNEL)]
+    pub(super) fn read_lock(&self) -> Result<rcu::Guard> {
+        let guard = rcu::read_lock();
+        // SAFETY: The active namespace and device are retained. Namespace migration removes
+        // the index entry and drains network RCU readers before changing namespace or index.
+        let valid = unsafe {
+            bindings::dev_get_by_index_rcu(self.namespace.as_raw(), self.index)
+                == self.device.as_raw()
+        };
+        if !valid {
+            return Err(ENODEV);
+        }
+        Ok(guard)
+    }
+
     /// Borrows the device whose identity was sampled.
     #[inline]
     pub fn device(&self) -> &Device {

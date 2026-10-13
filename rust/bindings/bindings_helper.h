@@ -107,6 +107,12 @@
 #include <net/sock.h>
 #endif
 
+#if IS_ENABLED(CONFIG_INET)
+#include <net/ip.h>
+#include <net/route.h>
+#include <net/ip6_route.h>
+#endif
+
 #if IS_ENABLED(CONFIG_NET_UDP_TUNNEL)
 #include <net/udp_tunnel.h>
 #endif
