@@ -18,6 +18,8 @@ use crate::{
 };
 use core::{ops::Deref, ptr::NonNull};
 
+#[cfg(CONFIG_MMU)]
+pub mod shared;
 pub mod virt;
 use virt::VmaRef;
 

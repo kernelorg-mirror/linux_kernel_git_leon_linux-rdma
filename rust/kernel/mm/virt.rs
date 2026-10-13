@@ -16,10 +16,23 @@
 
 use crate::{
     bindings,
-    error::{code::EINVAL, to_result, Result},
+    error::{
+        code::EINVAL,
+        to_result,
+        Result, //
+    },
     mm::MmWithUser,
     page::Page,
-    types::Opaque,
+    types::Opaque, //
+};
+
+#[cfg(CONFIG_MMU)]
+use crate::{
+    mm::shared::{
+        SharedPages,
+        SharedVmalloc, //
+    },
+    page::PAGE_SIZE, //
 };
 
 use core::ops::Deref;
@@ -90,6 +103,13 @@ impl VmaRef {
         // SAFETY: By the type invariants, the caller holds at least the mmap read lock, so this
         // access is not a data race.
         unsafe { (*self.as_ptr()).__bindgen_anon_1.__bindgen_anon_1.vm_end }
+    }
+
+    /// Returns the file offset in pages at the start of this VMA.
+    #[inline]
+    pub fn file_offset_pages(&self) -> usize {
+        // SAFETY: The invariant retains the VMA under the mmap or VMA read lock.
+        unsafe { (*self.as_ptr()).vm_pgoff }
     }
 
     /// Zap pages in the given page range.
@@ -223,6 +243,85 @@ impl Deref for VmaNew {
 }
 
 impl VmaNew {
+    /// Maps independently retained shared pages into this new VMA.
+    ///
+    /// `pgoff` selects the first page in `pages`, independently of this VMA's file offset.
+    /// Returns [`EINVAL`] for an out-of-range selection, a private VMA, a `VM_PFNMAP`
+    /// VMA, or a start address whose shared-memory colour differs from the selected backing.
+    /// The mapping owns
+    /// independent page references and is marked `VM_DONTEXPAND` and `VM_DONTDUMP`.
+    ///
+    /// Pages are installed eagerly, without configuring fault recovery. `MADV_DONTNEED` can
+    /// remove these mappings. Recovering them requires retained backing and a suitable fault
+    /// handler; otherwise subsequent accesses may fail with `SIGBUS`.
+    ///
+    /// This operation may sleep. On error, propagate the error from the mmap callback so the
+    /// memory manager removes any partially installed mapping.
+    #[cfg(CONFIG_MMU)]
+    pub fn map_shared_pages(&self, pages: &SharedPages, pgoff: usize) -> Result {
+        let count = (self.end() - self.start()) / PAGE_SIZE;
+        if pgoff.checked_add(count).is_none_or(|end| end > pages.len())
+            || self.flags() & flags::PFNMAP != 0
+            || self.flags() & (flags::SHARED | flags::MAYSHARE) == 0
+            || !pages.matches_colour(self.start(), pgoff)
+        {
+            return Err(EINVAL);
+        }
+        for index in 0..count {
+            // SAFETY: This VMA is undergoing initial mmap setup under the mmap write lock.
+            // The destination is within its page-aligned range and is not VM_PFNMAP. The
+            // source and destination colours match. The owner retains an initialized order-0
+            // page; vm_insert_page acquires another ref.
+            to_result(unsafe {
+                bindings::vm_insert_page(
+                    self.as_ptr(),
+                    self.start() + index * PAGE_SIZE,
+                    pages.page(pgoff + index),
+                )
+            })?;
+        }
+        self.set_dontexpand();
+        self.set_dontdump();
+        Ok(())
+    }
+
+    /// Maps a range of [`SharedVmalloc`] pages into this VMA.
+    ///
+    /// `pgoff` is an offset in pages into `memory`, independent of the VMA's file offset. Returns
+    /// [`EINVAL`] if the requested range is outside the allocation, the VMA is private, or this
+    /// is a `VM_PFNMAP` VMA. The VMA start must have the same shared-memory colour as the
+    /// selected backing page; mismatches also return [`EINVAL`].
+    /// The mapping holds its own page references and may outlive `memory`.
+    ///
+    /// This eagerly installs pages without configuring fault recovery. As with
+    /// [`Self::map_shared_pages`], recovery after `MADV_DONTNEED` removes mappings requires
+    /// retained backing and a suitable fault handler.
+    ///
+    /// This operation may sleep. On error, some pages may already have been mapped; propagate the
+    /// error from the mmap callback so that the memory manager removes the partial mapping.
+    #[inline]
+    #[cfg(CONFIG_MMU)]
+    pub fn remap_vmalloc_range(&self, memory: &SharedVmalloc, pgoff: usize) -> Result {
+        let offset = pgoff.checked_mul(PAGE_SIZE).ok_or(EINVAL)?;
+        let size = self.end() - self.start();
+        if offset
+            .checked_add(size)
+            .is_none_or(|end| end > memory.len())
+            || self.flags() & flags::PFNMAP != 0
+            || self.flags() & (flags::SHARED | flags::MAYSHARE) == 0
+            || !memory.matches_colour(self.start(), offset)
+        {
+            return Err(EINVAL);
+        }
+        // SAFETY: The VMA is undergoing initial mmap setup, with a nonempty page-aligned range
+        // and the mmap write lock held. The source range is in a live `VM_USERMAP` allocation,
+        // its colour matches the destination, and we excluded `VM_PFNMAP`. The C function
+        // acquires independent page references.
+        to_result(unsafe {
+            bindings::remap_vmalloc_range(self.as_ptr(), memory.as_ptr().cast(), pgoff)
+        })
+    }
+
     /// Access a virtual memory area given a raw pointer.
     ///
     /// # Safety

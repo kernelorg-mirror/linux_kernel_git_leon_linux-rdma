@@ -83,4 +83,15 @@ config RUST_BITFIELD_KUNIT_TEST
 
 	  If unsure, say N.
 
+config RUST_SHARED_VMALLOC_KUNIT_TEST
+	bool "KUnit tests for Rust shared vmalloc memory" if !KUNIT_ALL_TESTS
+	depends on MMU
+	default KUNIT_ALL_TESTS
+	help
+	  This option enables range, alignment and shared-access tests for
+	  memory mapped into userspace. These are only for development and
+	  testing, not for regular kernel use cases.
+
+	  If unsure, say N.
+
 endif

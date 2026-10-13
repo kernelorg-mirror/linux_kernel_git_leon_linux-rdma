@@ -95,6 +95,7 @@
 #include "scatterlist.c"
 #include "security.c"
 #include "serdev.c"
+#include "shm.c"
 #include "signal.c"
 #include "slab.c"
 #include "spinlock.c"
