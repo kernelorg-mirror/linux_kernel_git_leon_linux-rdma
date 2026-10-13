@@ -117,6 +117,10 @@
 #include <net/udp_tunnel.h>
 #endif
 
+#if IS_ENABLED(CONFIG_INFINIBAND)
+#include <rdma/ib_addr.h>
+#endif
+
 /*
  * The driver-core Rust code needs to know about some C driver-core private
  * structures.

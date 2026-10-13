@@ -12834,6 +12834,8 @@ F:	include/trace/events/ib_umad.h
 F:	include/trace/misc/rdma.h
 F:	include/uapi/linux/if_infiniband.h
 F:	include/uapi/rdma/
+F:	rust/kernel/rdma.rs
+F:	rust/kernel/rdma/
 F:	samples/bpf/ibumad_kern.c
 F:	samples/bpf/ibumad_user.c
 F:	tools/testing/selftests/rdma/

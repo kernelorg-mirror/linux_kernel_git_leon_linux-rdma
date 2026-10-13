@@ -125,6 +125,8 @@ pub mod pwm;
 pub mod random;
 pub mod ratelimit;
 pub mod rbtree;
+#[cfg(CONFIG_INFINIBAND)]
+pub mod rdma;
 pub mod regulator;
 pub mod revocable;
 pub mod safety;
