@@ -10,8 +10,15 @@ use crate::{
 };
 use core::marker::PhantomData;
 
+mod access;
+pub use access::{
+    Access,
+    AccessFlags, //
+};
+
 #[cfg(all(CONFIG_INFINIBAND_ON_DEMAND_PAGING, CONFIG_INFINIBAND_VIRT_DMA))]
 pub mod odp;
+pub mod umem;
 #[cfg(CONFIG_INFINIBAND_VIRT_DMA)]
 pub mod virt_dma;
 

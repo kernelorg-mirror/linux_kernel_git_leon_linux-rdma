@@ -24,3 +24,8 @@ __rust_helper void rust_helper_dma_unmap_sgtable(struct device *dev,
 {
 	return dma_unmap_sgtable(dev, sgt, dir, attrs);
 }
+
+__rust_helper struct page *rust_helper_sg_page_iter_page(struct sg_page_iter *iter)
+{
+	return sg_page_iter_page(iter);
+}

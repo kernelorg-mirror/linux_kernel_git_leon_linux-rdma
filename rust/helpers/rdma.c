@@ -3,8 +3,14 @@
 #if IS_ENABLED(CONFIG_INFINIBAND)
 #include <linux/once.h>
 #include <rdma/ib_addr.h>
+#include <rdma/ib_pmem.h>
 #include <rdma/ib_umem.h>
 #include <rdma/uverbs_ioctl.h>
+
+__rust_helper bool rust_helper_ib_pmem_range(u64 start, size_t size)
+{
+	return ib_pmem_range(start, size);
+}
 
 __rust_helper bool rust_helper_rdma_protocol_iwarp(struct ib_device *dev, u32 port)
 {
@@ -35,6 +41,27 @@ __rust_helper u64 rust_helper_ib_send_wr_id(const struct ib_send_wr *wr)
 	OPTIMIZER_HIDE_VAR(id);
 	return id;
 }
+
+#ifndef CONFIG_INFINIBAND_USER_MEM
+__rust_helper struct ib_umem *
+rust_helper_ib_umem_get_attr_or_va(struct ib_device *dev,
+				 const struct uverbs_attr_bundle *attrs,
+				 u16 attr_id, u64 addr, size_t size, int access)
+{
+	return ib_umem_get_attr_or_va(dev, attrs, attr_id, addr, size, access);
+}
+
+__rust_helper int rust_helper_ib_umem_check_rereg(struct ib_umem *umem,
+						int flags, int access)
+{
+	return ib_umem_check_rereg(umem, flags, access);
+}
+
+__rust_helper void rust_helper_ib_umem_release(struct ib_umem *umem)
+{
+	ib_umem_release(umem);
+}
+#endif
 
 __rust_helper struct page *rust_helper_ib_virt_dma_to_page(u64 addr)
 {

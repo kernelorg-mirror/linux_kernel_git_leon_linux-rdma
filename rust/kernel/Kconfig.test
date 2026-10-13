@@ -139,6 +139,17 @@ config RUST_SKBUFF_KUNIT_TEST
 	  If unsure, say N.
 
 endif
+
+config RUST_RDMA_UMEM_KUNIT_TEST
+	bool "KUnit tests for Rust pinned RDMA memory" if !KUNIT_ALL_TESTS
+	depends on KUNIT=y && RUST && INFINIBAND
+	default KUNIT_ALL_TESTS
+	help
+	  Test bounded copies and atomic accesses to pinned RDMA memory.
+	  Cover unaligned registrations, copies across page boundaries,
+	  rejected ranges and read-only registrations. The tests use owned
+	  backing pages and do not require a userspace memory registration.
+
 config RUST_RDMA_ODP_KUNIT_TEST
 	bool "KUnit tests for Rust on-demand RDMA memory" if !KUNIT_ALL_TESTS
 	depends on KUNIT=y && RUST && INFINIBAND=y
