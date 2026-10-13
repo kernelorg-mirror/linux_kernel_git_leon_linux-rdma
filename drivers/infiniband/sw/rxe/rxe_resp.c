@@ -522,6 +522,8 @@ static enum resp_states check_rkey(struct rxe_qp *qp,
 	pktlen	= payload_size(pkt);
 
 	if (rkey_is_mw(rkey)) {
+		if ((pkt->mask & RXE_FLUSH_MASK) && feth_sel(pkt) == IB_FLUSH_MR)
+			return get_rkey_violation_state(pkt);
 		mw = rxe_lookup_mw(qp, access, rkey);
 		if (!mw) {
 			rxe_dbg_qp(qp, "no MW matches rkey %#x\n", rkey);
