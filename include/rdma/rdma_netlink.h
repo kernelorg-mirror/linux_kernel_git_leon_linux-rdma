@@ -126,7 +126,8 @@ int rdma_nl_notify_event(struct ib_device *ib, u32 port_num,
 struct rdma_link_ops {
 	struct list_head list;
 	const char *type;
-	int (*newlink)(const char *ibdev_name, struct net_device *ndev);
+	int (*newlink)(const struct rdma_link_ops *ops,
+		       const char *ibdev_name, struct net_device *ndev);
 	int (*dellink)(struct ib_device *dev);
 };
 

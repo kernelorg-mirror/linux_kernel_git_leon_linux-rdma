@@ -219,7 +219,8 @@ int rxe_add(struct rxe_dev *rxe, unsigned int mtu, const char *ibdev_name,
 	return rxe_register_device(rxe, ibdev_name, ndev);
 }
 
-static int rxe_newlink(const char *ibdev_name, struct net_device *ndev)
+static int rxe_newlink(const struct rdma_link_ops *ops,
+			 const char *ibdev_name, struct net_device *ndev)
 {
 	struct rxe_dev *rxe;
 	struct rxe_ns_sock *ns;

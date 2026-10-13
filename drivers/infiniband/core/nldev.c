@@ -1868,7 +1868,7 @@ static int nldev_newlink(struct sk_buff *skb, struct nlmsghdr *nlh,
 		ops = link_ops_get(type);
 	}
 #endif
-	err = ops ? ops->newlink(ibdev_name, ndev) : -EINVAL;
+	err = ops ? ops->newlink(ops, ibdev_name, ndev) : -EINVAL;
 	up_read(&link_ops_rwsem);
 	dev_put(ndev);
 

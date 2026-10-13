@@ -412,7 +412,8 @@ static struct notifier_block siw_netdev_nb = {
 	.notifier_call = siw_netdev_event,
 };
 
-static int siw_newlink(const char *basedev_name, struct net_device *netdev)
+static int siw_newlink(const struct rdma_link_ops *ops,
+		       const char *basedev_name, struct net_device *netdev)
 {
 	struct ib_device *base_dev;
 	struct siw_device *sdev = NULL;
