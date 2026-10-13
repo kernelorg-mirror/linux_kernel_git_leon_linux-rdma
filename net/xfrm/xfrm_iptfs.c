@@ -1805,7 +1805,7 @@ static int iptfs_get_cur_pmtu(struct xfrm_state *x, struct xfrm_iptfs_data *xtfs
 {
 	struct xfrm_dst *xdst = (struct xfrm_dst *)skb_dst(skb);
 	u32 payload_mtu = xtfs->payload_mtu;
-	u32 pmtu = __iptfs_get_inner_mtu(x, xdst->child_mtu_cached);
+	u32 pmtu = __iptfs_get_inner_mtu(x, READ_ONCE(xdst->child_mtu_cached));
 
 	if (payload_mtu && payload_mtu < pmtu)
 		pmtu = payload_mtu;

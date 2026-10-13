@@ -1086,6 +1086,8 @@ struct xfrm_dst {
 	int num_pols, num_xfrms;
 	u32 xfrm_genid;
 	u32 policy_genid;
+	/* Serializes cached MTU comparison and metric publication. */
+	spinlock_t mtu_lock;
 	u32 route_mtu_cached;
 	u32 child_mtu_cached;
 	u32 route_cookie;

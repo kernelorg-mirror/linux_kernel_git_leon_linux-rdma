@@ -2618,6 +2618,7 @@ static inline struct xfrm_dst *xfrm_alloc_dst(struct net *net, int family)
 
 	if (likely(xdst)) {
 		memset_after(xdst, 0, u.dst);
+		spin_lock_init(&xdst->mtu_lock);
 	} else
 		xdst = ERR_PTR(-ENOBUFS);
 
@@ -2718,6 +2719,10 @@ static struct dst_entry *xfrm_bundle_create(struct xfrm_policy *policy,
 
 		xdst->route = dst;
 		dst_copy_metrics(dst1, dst);
+		if (dst_metrics_read_only(dst1)) {
+			err = -ENOMEM;
+			goto put_states;
+		}
 
 		if (xfrm[i]->props.mode != XFRM_MODE_TRANSPORT) {
 			__u32 mark = 0;
@@ -4006,8 +4011,10 @@ static int xfrm_bundle_ok(struct xfrm_dst *first)
 	struct xfrm_dst *bundle[XFRM_MAX_DEPTH];
 	struct dst_entry *dst = &first->u.dst;
 	struct xfrm_dst *xdst;
-	int start_from, nr;
+	int start_from, nr, i, valid = 0;
 	u32 mtu;
+
+	BUILD_BUG_ON(XFRM_MAX_DEPTH > MAX_LOCKDEP_SUBCLASSES);
 
 	if (!dst_check(xfrm_dst_path(dst), ((struct xfrm_dst *)dst)->path_cookie) ||
 	    (dst->dev && !netif_running(dst->dev)))
@@ -4016,57 +4023,77 @@ static int xfrm_bundle_ok(struct xfrm_dst *first)
 	if (dst->flags & DST_XFRM_QUEUE)
 		return 1;
 
-	start_from = nr = 0;
+	/* Lock the complete chain from parent to child before sampling MTUs,
+	 * and retain every lock until metric publication has finished.
+	 */
+	local_bh_disable();
+	nr = 0;
 	do {
 		struct xfrm_dst *xdst = (struct xfrm_dst *)dst;
 
-		if (dst->xfrm->km.state != XFRM_STATE_VALID)
-			return 0;
-		if (xdst->xfrm_genid != dst->xfrm->genid)
-			return 0;
-		if (xdst->num_pols > 0 &&
-		    xdst->policy_genid != atomic_read(&xdst->pols[0]->genid))
-			return 0;
-
+		spin_lock_nested(&xdst->mtu_lock, nr);
 		bundle[nr++] = xdst;
-
-		mtu = dst_mtu(xfrm_dst_child(dst));
-		if (xdst->child_mtu_cached != mtu) {
-			start_from = nr;
-			xdst->child_mtu_cached = mtu;
-		}
-
-		if (!dst_check(xdst->route, xdst->route_cookie))
-			return 0;
-		mtu = dst_mtu(xdst->route);
-		if (xdst->route_mtu_cached != mtu) {
-			start_from = nr;
-			xdst->route_mtu_cached = mtu;
-		}
-
 		dst = xfrm_dst_child(dst);
 	} while (dst->xfrm);
 
+	start_from = 0;
+	for (i = 0; i < nr; i++) {
+		struct xfrm_dst *xdst = bundle[i];
+
+		dst = &xdst->u.dst;
+		if (dst->xfrm->km.state != XFRM_STATE_VALID)
+			goto out;
+		if (xdst->xfrm_genid != dst->xfrm->genid)
+			goto out;
+		if (xdst->num_pols > 0 &&
+		    xdst->policy_genid != atomic_read(&xdst->pols[0]->genid))
+			goto out;
+
+		mtu = dst_mtu(xfrm_dst_child(dst));
+		if (xdst->child_mtu_cached != mtu) {
+			start_from = i + 1;
+			WRITE_ONCE(xdst->child_mtu_cached, mtu);
+		}
+
+		if (!dst_check(xdst->route, xdst->route_cookie))
+			goto out;
+		mtu = dst_mtu(xdst->route);
+		if (xdst->route_mtu_cached != mtu) {
+			start_from = i + 1;
+			xdst->route_mtu_cached = mtu;
+		}
+	}
+
 	if (likely(!start_from))
-		return 1;
+		goto valid;
 
 	xdst = bundle[start_from - 1];
 	mtu = xdst->child_mtu_cached;
 	while (start_from--) {
+		u32 *metrics;
+
 		dst = &xdst->u.dst;
 
 		mtu = xfrm_state_mtu(dst->xfrm, mtu);
 		if (mtu > xdst->route_mtu_cached)
 			mtu = xdst->route_mtu_cached;
-		dst_metric_set(dst, RTAX_MTU, mtu);
+		metrics = dst_metrics_write_ptr(dst);
+		if (metrics)
+			WRITE_ONCE(metrics[RTAX_MTU - 1], mtu);
 		if (!start_from)
 			break;
 
 		xdst = bundle[start_from - 1];
-		xdst->child_mtu_cached = mtu;
+		WRITE_ONCE(xdst->child_mtu_cached, mtu);
 	}
 
-	return 1;
+valid:
+	valid = 1;
+out:
+	while (nr--)
+		spin_unlock(&bundle[nr]->mtu_lock);
+	local_bh_enable();
+	return valid;
 }
 
 static unsigned int xfrm_default_advmss(const struct dst_entry *dst)
@@ -4076,7 +4103,8 @@ static unsigned int xfrm_default_advmss(const struct dst_entry *dst)
 
 static unsigned int xfrm_mtu(const struct dst_entry *dst)
 {
-	unsigned int mtu = dst_metric_raw(dst, RTAX_MTU);
+	u32 *metrics = DST_METRICS_PTR(dst);
+	unsigned int mtu = READ_ONCE(metrics[RTAX_MTU - 1]);
 
 	return mtu ? : dst_mtu(xfrm_dst_path(dst));
 }

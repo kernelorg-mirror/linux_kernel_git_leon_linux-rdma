@@ -431,7 +431,7 @@ bool xfrm_dev_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 
 	if ((!dev || dev == xfrm_dst_path(dst)->dev) &&
 	    !xdst->child->xfrm) {
-		mtu = xfrm_state_mtu(x, xdst->child_mtu_cached);
+		mtu = xfrm_state_mtu(x, READ_ONCE(xdst->child_mtu_cached));
 		if (skb->len <= mtu)
 			goto ok;
 
