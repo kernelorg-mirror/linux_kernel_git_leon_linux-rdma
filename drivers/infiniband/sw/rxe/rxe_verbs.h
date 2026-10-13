@@ -417,6 +417,8 @@ struct rxe_port {
 
 struct rxe_dev {
 	struct ib_device	ib_dev;
+	struct rxe_ns_sock	*ns;
+	struct net		*net; /* passive allocation reference */
 	struct ib_device_attr	attr;
 	int			max_ucontext;
 	int			max_inline_data;

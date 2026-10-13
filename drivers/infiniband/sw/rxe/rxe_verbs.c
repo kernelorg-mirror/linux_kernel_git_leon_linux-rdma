@@ -1455,6 +1455,18 @@ static int rxe_enable_driver(struct ib_device *ib_dev)
 	if (!ndev)
 		return -ENODEV;
 
+	/* Notifier lookups can retain this device once enable_driver runs. */
+	rtnl_lock();
+	if (ndev->reg_state != NETREG_REGISTERED ||
+	    dev_net(ndev) != rxe->net || !READ_ONCE(rxe->ns)) {
+		rtnl_unlock();
+		dev_put(ndev);
+		return -ENODEV;
+	}
+	/* Serialize initial publication with subsequent CHANGE_MTU events. */
+	rxe_set_mtu(rxe, ndev->mtu);
+	rtnl_unlock();
+
 	rxe_set_port_state(rxe);
 	dev_info(&rxe->ib_dev.dev, "added %s\n", netdev_name(ndev));
 

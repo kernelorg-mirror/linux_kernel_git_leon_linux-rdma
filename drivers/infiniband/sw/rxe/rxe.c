@@ -34,6 +34,8 @@ void rxe_dealloc(struct ib_device *ib_dev)
 	WARN_ON(!RB_EMPTY_ROOT(&rxe->mcg_tree));
 
 	mutex_destroy(&rxe->usdev_lock);
+	rxe_net_del(ib_dev);
+	net_passive_dec(rxe->net);
 }
 
 static const struct ib_device_ops rxe_ib_dev_odp_ops = {
@@ -220,6 +222,8 @@ int rxe_add(struct rxe_dev *rxe, unsigned int mtu, const char *ibdev_name,
 static int rxe_newlink(const char *ibdev_name, struct net_device *ndev)
 {
 	struct rxe_dev *rxe;
+	struct rxe_ns_sock *ns;
+	struct net *net;
 	int err = 0;
 
 	if (is_vlan_dev(ndev)) {
@@ -236,11 +240,24 @@ static int rxe_newlink(const char *ibdev_name, struct net_device *ndev)
 		goto err;
 	}
 
-	err = rxe_net_init(ndev);
-	if (err)
-		return err;
+	rtnl_lock();
+	if (ndev->reg_state != NETREG_REGISTERED) {
+		rtnl_unlock();
+		return -ENODEV;
+	}
+	net = maybe_get_net(dev_net(ndev));
+	rtnl_unlock();
+	if (!net)
+		return -ENETDOWN;
+	ns = rxe_ns_get(net);
+	if (IS_ERR(ns)) {
+		put_net(net);
+		return PTR_ERR(ns);
+	}
 
-	err = rxe_net_add(ibdev_name, ndev);
+	/* rxe_net_add consumes the namespace membership on every path. */
+	err = rxe_net_add(ibdev_name, ndev, ns, net);
+	put_net(net);
 	if (err) {
 		rxe_err("failed to add %s\n", ndev->name);
 		goto err;
