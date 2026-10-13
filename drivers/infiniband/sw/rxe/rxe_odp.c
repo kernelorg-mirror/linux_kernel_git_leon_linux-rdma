@@ -218,6 +218,8 @@ static int __rxe_odp_mr_copy(struct rxe_mr *mr, u64 user_addr, void *addr,
 			bytes = length;
 
 		memcpy(dest, src, bytes);
+		if (dir == RXE_TO_MR_OBJ)
+			flush_dcache_page(page);
 		kunmap_local(user_va);
 
 		length -= bytes;
@@ -306,6 +308,7 @@ static enum resp_states rxe_odp_do_atomic_op(struct rxe_mr *mr, u64 user_addr,
 		va[page_offset >> 3] = value;
 	}
 	spin_unlock_bh(&atomic_ops_lock);
+	flush_dcache_page(page);
 
 	kunmap_local(va);
 
@@ -415,6 +418,7 @@ enum resp_states rxe_odp_do_atomic_write(struct rxe_mr *mr, u64 iova, u64 value)
 	va = kmap_local_page(page);
 	/* Do atomic write after all prior operations have completed */
 	smp_store_release(&va[page_offset >> 3], value);
+	flush_dcache_page(page);
 	kunmap_local(va);
 
 	mutex_unlock(&umem_odp->umem_mutex);
