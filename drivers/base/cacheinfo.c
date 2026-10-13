@@ -463,8 +463,8 @@ static int cache_shared_cpu_map_setup(unsigned int cpu)
 			}
 		}
 		/* record the maximum cache line size */
-		if (this_leaf->coherency_line_size > coherency_max_size)
-			coherency_max_size = this_leaf->coherency_line_size;
+		if (this_leaf->coherency_line_size > READ_ONCE(coherency_max_size))
+			WRITE_ONCE(coherency_max_size, this_leaf->coherency_line_size);
 	}
 
 	/* shared_cpu_map is now populated for the cpu */

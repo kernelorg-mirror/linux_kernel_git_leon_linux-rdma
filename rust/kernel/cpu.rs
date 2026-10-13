@@ -6,6 +6,16 @@
 
 use crate::{bindings, device::Device, error::Result, prelude::ENODEV};
 
+/// Returns the architecture's cache-line size or alignment requirement in bytes.
+///
+/// This may exceed a particular data-cache line size. Architectures can report a discovered
+/// value that changes as CPUs come online, so it is a snapshot rather than a fixed alignment.
+#[inline]
+pub fn cache_line_size() -> u32 {
+    // SAFETY: The accessor returns the architecture's current cache-line size.
+    unsafe { bindings::cache_line_size_unsigned() }
+}
+
 /// Returns the maximum number of possible CPUs in the current system configuration.
 #[inline]
 pub fn nr_cpu_ids() -> u32 {

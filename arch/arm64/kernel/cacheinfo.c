@@ -14,8 +14,10 @@
 
 int cache_line_size(void)
 {
-	if (coherency_max_size != 0)
-		return coherency_max_size;
+	unsigned int size = READ_ONCE(coherency_max_size);
+
+	if (size != 0)
+		return size;
 
 	return cache_line_size_of_cpu();
 }

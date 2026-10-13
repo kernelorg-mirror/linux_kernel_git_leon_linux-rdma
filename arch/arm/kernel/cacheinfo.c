@@ -50,8 +50,10 @@ static inline int cache_line_size_cp15(void)
 
 int cache_line_size(void)
 {
-	if (coherency_max_size != 0)
-		return coherency_max_size;
+	unsigned int size = READ_ONCE(coherency_max_size);
+
+	if (size != 0)
+		return size;
 
 	/* CP15 is optional / implementation defined before ARMv6 */
 	if (cpu_architecture() < CPU_ARCH_ARMv6)
