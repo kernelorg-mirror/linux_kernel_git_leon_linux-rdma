@@ -10,6 +10,9 @@ use crate::{
 };
 use core::marker::PhantomData;
 
+#[cfg(CONFIG_INFINIBAND_VIRT_DMA)]
+pub mod virt_dma;
+
 /// A borrowed RDMA core device belonging to provider `T`.
 ///
 /// The provider parameter keeps operations in the provider's crate, allowing the RDMA core and
