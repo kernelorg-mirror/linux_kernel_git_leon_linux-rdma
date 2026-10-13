@@ -34,7 +34,15 @@ pub use capabilities::{
     TagMatchingCapabilities, //
 };
 
+mod device;
+pub use device::DeviceRef;
+
 mod registry;
+
+mod event;
+pub use event::PortEvent;
+
+pub mod link;
 
 mod context;
 pub use context::{

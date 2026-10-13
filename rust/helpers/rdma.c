@@ -76,6 +76,12 @@ __rust_helper u64 rust_helper_ib_send_wr_id(const struct ib_send_wr *wr)
 	return id;
 }
 
+__rust_helper int rust_helper_rdma_is_port_valid(const struct ib_device *dev,
+					       u32 port)
+{
+	return rdma_is_port_valid(dev, port);
+}
+
 #ifndef CONFIG_INFINIBAND_USER_MEM
 __rust_helper struct ib_umem *
 rust_helper_ib_umem_get_attr_or_va(struct ib_device *dev,
