@@ -125,35 +125,35 @@ static inline bool rxe_check_pagefault(struct ib_umem_odp *umem_odp, u64 iova,
 	bool need_fault = false;
 	u64 access = HMM_PFN_VALID;
 	u64 addr;
-	int idx;
+	unsigned long idx;
 
 	if (write)
 		access |= HMM_PFN_WRITE;
 
-	addr = iova & (~(BIT(umem_odp->page_shift) - 1));
+	addr = iova & PAGE_MASK;
 
 	/* Skim through all pages that are to be accessed. */
 	while (addr < iova + length) {
-		idx = (addr - ib_umem_start(umem_odp)) >> umem_odp->page_shift;
+		idx = (addr - ib_umem_start(umem_odp)) >> PAGE_SHIFT;
 
 		if ((umem_odp->map.pfn_list[idx] & access) != access) {
 			need_fault = true;
 			break;
 		}
 
-		addr += BIT(umem_odp->page_shift);
+		addr += PAGE_SIZE;
 	}
 	return need_fault;
 }
 
 static unsigned long rxe_odp_iova_to_index(struct ib_umem_odp *umem_odp, u64 iova)
 {
-	return (iova - ib_umem_start(umem_odp)) >> umem_odp->page_shift;
+	return (iova - ib_umem_start(umem_odp)) >> PAGE_SHIFT;
 }
 
-static unsigned long rxe_odp_iova_to_page_offset(struct ib_umem_odp *umem_odp, u64 iova)
+static unsigned long rxe_odp_iova_to_page_offset(u64 iova)
 {
-	return iova & (BIT(umem_odp->page_shift) - 1);
+	return offset_in_page(iova);
 }
 
 static int rxe_odp_map_range_and_lock(struct rxe_mr *mr, u64 iova, int length, u32 flags)
@@ -193,12 +193,13 @@ static int __rxe_odp_mr_copy(struct rxe_mr *mr, u64 iova, void *addr,
 {
 	struct ib_umem_odp *umem_odp = to_ib_umem_odp(mr->umem);
 	struct page *page;
-	int idx, bytes;
+	unsigned long idx;
+	int bytes;
 	size_t offset;
 	u8 *user_va;
 
 	idx = rxe_odp_iova_to_index(umem_odp, iova);
-	offset = rxe_odp_iova_to_page_offset(umem_odp, iova);
+	offset = rxe_odp_iova_to_page_offset(iova);
 
 	while (length > 0) {
 		u8 *src, *dest;
@@ -206,17 +207,18 @@ static int __rxe_odp_mr_copy(struct rxe_mr *mr, u64 iova, void *addr,
 		page = hmm_pfn_to_page(umem_odp->map.pfn_list[idx]);
 		user_va = kmap_local_page(page);
 
-		src = (dir == RXE_TO_MR_OBJ) ? addr : user_va;
-		dest = (dir == RXE_TO_MR_OBJ) ? user_va : addr;
+		src = (dir == RXE_TO_MR_OBJ) ? addr : user_va + offset;
+		dest = (dir == RXE_TO_MR_OBJ) ? user_va + offset : addr;
 
-		bytes = BIT(umem_odp->page_shift) - offset;
+		bytes = PAGE_SIZE - offset;
 		if (bytes > length)
 			bytes = length;
 
 		memcpy(dest, src, bytes);
 		kunmap_local(user_va);
 
-		length  -= bytes;
+		length -= bytes;
+		addr += bytes;
 		idx++;
 		offset = 0;
 	}
@@ -267,7 +269,7 @@ static enum resp_states rxe_odp_do_atomic_op(struct rxe_mr *mr, u64 iova,
 	struct ib_umem_odp *umem_odp = to_ib_umem_odp(mr->umem);
 	unsigned int page_offset;
 	struct page *page;
-	unsigned int idx;
+	unsigned long idx;
 	u64 value;
 	u64 *va;
 	int err;
@@ -283,7 +285,7 @@ static enum resp_states rxe_odp_do_atomic_op(struct rxe_mr *mr, u64 iova,
 		return RESPST_ERR_RKEY_VIOLATION;
 	}
 
-	page_offset = rxe_odp_iova_to_page_offset(umem_odp, iova);
+	page_offset = rxe_odp_iova_to_page_offset(iova);
 	if (unlikely(page_offset & 0x7)) {
 		rxe_dbg_mr(mr, "iova not aligned\n");
 		return RESPST_ERR_MISALIGNED_ATOMIC;
@@ -348,12 +350,12 @@ int rxe_odp_flush_pmem_iova(struct rxe_mr *mr, u64 iova,
 
 	while (length > 0) {
 		index = rxe_odp_iova_to_index(umem_odp, iova);
-		page_offset = rxe_odp_iova_to_page_offset(umem_odp, iova);
+		page_offset = rxe_odp_iova_to_page_offset(iova);
 
 		page = hmm_pfn_to_page(umem_odp->map.pfn_list[index]);
 
 		bytes = min_t(unsigned int, length,
-			      mr_page_size(mr) - page_offset);
+			      PAGE_SIZE - page_offset);
 
 		va = kmap_local_page(page);
 		arch_wb_cache_pmem(va + page_offset, bytes);
@@ -389,7 +391,7 @@ enum resp_states rxe_odp_do_atomic_write(struct rxe_mr *mr, u64 iova, u64 value)
 	if (err)
 		return RESPST_ERR_RKEY_VIOLATION;
 
-	page_offset = rxe_odp_iova_to_page_offset(umem_odp, iova);
+	page_offset = rxe_odp_iova_to_page_offset(iova);
 	/* See IBA A19.4.2 */
 	if (unlikely(page_offset & 0x7)) {
 		mutex_unlock(&umem_odp->umem_mutex);
