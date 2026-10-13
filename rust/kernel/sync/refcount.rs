@@ -72,6 +72,18 @@ impl Refcount {
         unsafe { bindings::refcount_inc(self.as_ptr()) }
     }
 
+    /// Increments the counter only while it remains nonzero.
+    ///
+    /// Returns whether a reference was acquired. Like [`Self::inc`], this can saturate and
+    /// warn on overflow. It provides no acquire ordering: the caller must independently
+    /// retain stable, initialized object storage throughout acquisition.
+    #[inline]
+    #[must_use]
+    pub fn inc_not_zero(&self) -> bool {
+        // SAFETY: The borrow retains an initialized counter for this atomic operation.
+        unsafe { bindings::refcount_inc_not_zero(self.as_ptr()) }
+    }
+
     /// Decrement a refcount.
     ///
     /// It will `WARN` on underflow and fail to decrement when saturated.

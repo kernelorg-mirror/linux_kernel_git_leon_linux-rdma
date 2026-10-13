@@ -17,6 +17,11 @@ __rust_helper void rust_helper_refcount_inc(refcount_t *r)
 	refcount_inc(r);
 }
 
+__rust_helper bool rust_helper_refcount_inc_not_zero(refcount_t *r)
+{
+	return refcount_inc_not_zero(r);
+}
+
 __rust_helper void rust_helper_refcount_dec(refcount_t *r)
 {
 	refcount_dec(r);
