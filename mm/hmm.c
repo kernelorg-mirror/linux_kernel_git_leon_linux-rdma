@@ -23,6 +23,7 @@
 #include <linux/hugetlb.h>
 #include <linux/memremap.h>
 #include <linux/sched/mm.h>
+#include <linux/secretmem.h>
 #include <linux/jump_label.h>
 #include <linux/dma-mapping.h>
 #include <linux/pci-p2pdma.h>
@@ -596,7 +597,7 @@ static int hmm_vma_walk_test(unsigned long start, unsigned long end,
 	struct vm_area_struct *vma = walk->vma;
 
 	if (!(vma->vm_flags & (VM_IO | VM_PFNMAP)) &&
-	    vma->vm_flags & VM_READ)
+	    vma->vm_flags & VM_READ && !vma_is_secretmem(vma))
 		return 0;
 
 	/*
