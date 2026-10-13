@@ -202,6 +202,9 @@ use crate::{
 };
 use core::{marker::PhantomData, ptr::NonNull};
 
+mod owned;
+pub use owned::OwnedQueue;
+
 /// Creates a [`Work`] initialiser with the given name and a newly-created lock class.
 #[macro_export]
 macro_rules! new_work {
@@ -1033,6 +1036,16 @@ where
 pub fn system() -> &'static Queue {
     // SAFETY: `system_wq` is a C global, always available.
     unsafe { Queue::from_raw(bindings::system_wq) }
+}
+
+/// Returns the default unbound system work queue (`system_dfl_wq`).
+///
+/// Work executes in sleepable worker context without a fixed CPU affinity. Callers should
+/// queue relatively short work items and avoid flushing this shared queue.
+#[inline]
+pub fn system_dfl() -> &'static Queue {
+    // SAFETY: `system_dfl_wq` is initialized before kernel workqueue users and remains live.
+    unsafe { Queue::from_raw(bindings::system_dfl_wq) }
 }
 
 /// Returns the system high-priority work queue (`system_highpri_wq`).

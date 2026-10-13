@@ -450,7 +450,7 @@ mod tests {
     fn spinlock_irq_condvar() -> Result {
         let testdata = Test::new()?;
 
-        let _ = workqueue::system().enqueue(testdata.clone());
+        let _ = workqueue::system_dfl().enqueue(testdata.clone());
 
         // Let the updater know when we're ready to wait
         let mut state = testdata.state.lock();
@@ -458,8 +458,9 @@ mod tests {
         testdata.waiter_state_changed.notify_sync();
 
         // Wait for the exciting value update
-        testdata.state_changed.wait(&mut state);
-        assert_eq!(state.value, 2);
+        while state.value != 2 {
+            testdata.state_changed.wait(&mut state);
+        }
         Ok(())
     }
 }
