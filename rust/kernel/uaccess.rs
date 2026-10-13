@@ -461,6 +461,49 @@ impl UserSliceWriter {
         self.length == 0
     }
 
+    /// Clears the remaining userspace buffer and consumes this writer.
+    ///
+    /// Returns [`EFAULT`] if any byte could not be cleared. Some bytes may already have been
+    /// cleared on failure. An empty buffer succeeds without accessing its address.
+    #[inline]
+    pub fn clear(mut self) -> Result {
+        while self.length != 0 {
+            // UML's clear_user implementation passes the length through a signed int.
+            let length = self.length.min(c_int::MAX as usize);
+            // SAFETY: `clear_user` checks the user address range and handles access faults.
+            // The bounded length also fits implementations using a signed int internally.
+            if unsafe { bindings::clear_user(self.ptr.as_mut_ptr(), length) } != 0 {
+                return Err(EFAULT);
+            }
+            self.ptr = self.ptr.wrapping_byte_add(length);
+            self.length -= length;
+        }
+        Ok(())
+    }
+
+    /// Splits the remaining output at `index`, consuming this writer.
+    ///
+    /// The first writer covers `index` bytes, and the second covers the remaining bytes.
+    /// Each writer retains its own bounds, so fields can be written independently without
+    /// exposing their raw userspace addresses. Returns [`EFAULT`] if `index` exceeds the
+    /// remaining length. User addresses are checked only when the resulting writers are used.
+    #[inline]
+    pub fn split_at(self, index: usize) -> Result<(Self, Self)> {
+        if index > self.length {
+            return Err(EFAULT);
+        }
+        Ok((
+            Self {
+                ptr: self.ptr,
+                length: index,
+            },
+            Self {
+                ptr: self.ptr.wrapping_byte_add(index),
+                length: self.length - index,
+            },
+        ))
+    }
+
     /// Low-level write from a raw pointer.
     ///
     /// # Safety
