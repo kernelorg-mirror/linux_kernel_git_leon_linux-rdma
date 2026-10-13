@@ -9,11 +9,13 @@
 #include <rdma/ib_umem.h>
 #include <rdma/ib_verbs.h>
 #include <linux/hmm-dma.h>
+#include <linux/refcount.h>
 
 struct ib_umem_odp {
 	struct ib_umem umem;
 	struct mmu_interval_notifier notifier;
 	struct pid *tgid;
+	refcount_t refs;
 
 	struct hmm_dma_map map;
 
@@ -66,6 +68,10 @@ static inline size_t ib_umem_odp_num_pages(struct ib_umem_odp *umem_odp)
 struct ib_umem_odp *
 ib_umem_odp_get(struct ib_device *device, unsigned long addr, size_t size,
 		int access, const struct mmu_interval_notifier_ops *ops);
+struct ib_umem_odp *ib_umem_odp_get_cpu(struct ib_device *device,
+					unsigned long addr, size_t size, int access);
+int ib_umem_odp_queue_prefetch(struct ib_umem_odp *umem_odp, u64 user_virt,
+			       u64 bcnt, u64 access_mask, bool fault);
 struct ib_umem_odp *ib_umem_odp_alloc_implicit(struct ib_device *device,
 					       int access);
 struct ib_umem_odp *
@@ -90,6 +96,20 @@ ib_umem_odp_get(struct ib_device *device, unsigned long addr, size_t size,
 }
 
 static inline void ib_umem_odp_release(struct ib_umem_odp *umem_odp) {}
+
+static inline struct ib_umem_odp *
+ib_umem_odp_get_cpu(struct ib_device *device, unsigned long addr, size_t size,
+		    int access)
+{
+	return ERR_PTR(-EOPNOTSUPP);
+}
+
+static inline int ib_umem_odp_queue_prefetch(struct ib_umem_odp *umem_odp,
+					     u64 user_virt, u64 bcnt,
+					     u64 access_mask, bool fault)
+{
+	return -EOPNOTSUPP;
+}
 
 #endif /* CONFIG_INFINIBAND_ON_DEMAND_PAGING */
 

@@ -189,7 +189,6 @@ static inline unsigned int wr_opcode_mask(int opcode, struct rxe_qp *qp)
 }
 
 /* rxe_odp.c */
-extern const struct mmu_interval_notifier_ops rxe_mn_ops;
 
 #if defined CONFIG_INFINIBAND_ON_DEMAND_PAGING
 int rxe_odp_mr_init_user(struct rxe_dev *rxe, u64 start, u64 length,

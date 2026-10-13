@@ -378,4 +378,18 @@ void rdma_umap_priv_init(struct rdma_umap_priv *priv,
 void ib_cq_pool_cleanup(struct ib_device *dev);
 
 bool rdma_nl_get_privileged_qkey(void);
+
+#ifdef CONFIG_INFINIBAND_ON_DEMAND_PAGING
+int ib_umem_odp_init(void);
+void ib_umem_odp_cleanup(void);
+#else
+static inline int ib_umem_odp_init(void)
+{
+	return 0;
+}
+
+static inline void ib_umem_odp_cleanup(void)
+{
+}
+#endif
 #endif /* _CORE_PRIV_H */

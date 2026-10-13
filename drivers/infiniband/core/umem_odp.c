@@ -43,15 +43,31 @@
 #include <linux/hmm.h>
 #include <linux/hmm-dma.h>
 #include <linux/pagemap.h>
+#include <linux/workqueue.h>
 
 #include <rdma/ib_umem_odp.h>
 
 #include "uverbs.h"
+#include "core_priv.h"
+
+static struct workqueue_struct *ib_odp_prefetch_wq;
+
+int ib_umem_odp_init(void)
+{
+	ib_odp_prefetch_wq = alloc_workqueue("ib-odp-prefetch", WQ_UNBOUND, 0);
+	return ib_odp_prefetch_wq ? 0 : -ENOMEM;
+}
+
+void ib_umem_odp_cleanup(void)
+{
+	destroy_workqueue(ib_odp_prefetch_wq);
+}
 
 static void ib_init_umem_implicit_odp(struct ib_umem_odp *umem_odp)
 {
 	umem_odp->is_implicit_odp = 1;
 	umem_odp->umem.is_odp = 1;
+	refcount_set(&umem_odp->refs, 1);
 	mutex_init(&umem_odp->umem_mutex);
 }
 
@@ -67,6 +83,7 @@ static int ib_init_umem_odp(struct ib_umem_odp *umem_odp,
 	int ret = 0;
 
 	umem_odp->umem.is_odp = 1;
+	refcount_set(&umem_odp->refs, 1);
 	mutex_init(&umem_odp->umem_mutex);
 
 	start = ALIGN_DOWN(umem_odp->umem.address, page_size);
@@ -271,6 +288,49 @@ err_put_pid:
 }
 EXPORT_SYMBOL(ib_umem_odp_get);
 
+static bool ib_umem_odp_cpu_invalidate(struct mmu_interval_notifier *mni,
+				       const struct mmu_notifier_range *range,
+				       unsigned long cur_seq)
+{
+	struct ib_umem_odp *umem_odp =
+		container_of(mni, struct ib_umem_odp, notifier);
+
+	if (!mmu_notifier_range_blockable(range))
+		return false;
+
+	mutex_lock(&umem_odp->umem_mutex);
+	mmu_interval_set_seq(mni, cur_seq);
+	ib_umem_odp_unmap_dma_pages(umem_odp,
+				    max_t(u64, ib_umem_start(umem_odp), range->start),
+				    min_t(u64, ib_umem_end(umem_odp), range->end));
+	mutex_unlock(&umem_odp->umem_mutex);
+	return true;
+}
+
+static const struct mmu_interval_notifier_ops ib_umem_odp_cpu_ops = {
+	.invalidate = ib_umem_odp_cpu_invalidate,
+};
+
+/**
+ * ib_umem_odp_get_cpu - Create ODP backing with core-owned CPU invalidation
+ * @device: virtual DMA device
+ * @addr: starting userspace address
+ * @size: length of the userspace range
+ * @access: IB_ACCESS_xxx flags
+ *
+ * CPU access must hold umem_mutex after mapping the range. The notifier does
+ * not depend on provider callbacks or on an MR remaining registered.
+ */
+struct ib_umem_odp *ib_umem_odp_get_cpu(struct ib_device *device,
+					unsigned long addr, size_t size, int access)
+{
+	if (!ib_uses_virt_dma(device))
+		return ERR_PTR(-EOPNOTSUPP);
+
+	return ib_umem_odp_get(device, addr, size, access, &ib_umem_odp_cpu_ops);
+}
+EXPORT_SYMBOL(ib_umem_odp_get_cpu);
+
 static void ib_umem_odp_free(struct ib_umem_odp *umem_odp)
 {
 	struct ib_device *dev = umem_odp->umem.ibdev;
@@ -294,6 +354,9 @@ static void ib_umem_odp_free(struct ib_umem_odp *umem_odp)
 
 void ib_umem_odp_release(struct ib_umem_odp *umem_odp)
 {
+	if (!refcount_dec_and_test(&umem_odp->refs))
+		return;
+
 	if (!umem_odp->is_implicit_odp)
 		ib_umem_odp_free(umem_odp);
 
@@ -301,6 +364,83 @@ void ib_umem_odp_release(struct ib_umem_odp *umem_odp)
 	kfree(umem_odp);
 }
 EXPORT_SYMBOL(ib_umem_odp_release);
+
+struct ib_umem_odp_prefetch {
+	struct work_struct work;
+	struct ib_umem_odp *umem_odp;
+	u64 user_virt;
+	u64 bcnt;
+	u64 access_mask;
+	bool fault;
+};
+
+static void ib_umem_odp_prefetch_work(struct work_struct *work)
+{
+	struct ib_umem_odp_prefetch *prefetch =
+		container_of(work, struct ib_umem_odp_prefetch, work);
+	struct ib_umem_odp *umem_odp = prefetch->umem_odp;
+	struct device *dev = &umem_odp->umem.ibdev->dev;
+	int ret;
+
+	ret = ib_umem_odp_map_dma_and_lock(umem_odp, prefetch->user_virt,
+					   prefetch->bcnt, prefetch->access_mask,
+					   prefetch->fault);
+	if (ret >= 0)
+		mutex_unlock(&umem_odp->umem_mutex);
+	ib_umem_odp_release(umem_odp);
+	put_device(dev);
+	kfree(prefetch);
+}
+
+/**
+ * ib_umem_odp_queue_prefetch - Schedule best-effort CPU ODP prefetch
+ * @umem_odp: backing created by ib_umem_odp_get_cpu()
+ * @user_virt: starting userspace address, already translated from the MR IOVA
+ * @bcnt: length of the range
+ * @access_mask: HMM_PFN_WRITE for write access, or zero for read access
+ * @fault: whether absent pages should be faulted in
+ *
+ * The caller must own the backing and its device during this call. Work owns
+ * independent backing and device allocation references, without retaining an
+ * MR, PD, or provider callback. Device removal does not flush this workqueue.
+ */
+int ib_umem_odp_queue_prefetch(struct ib_umem_odp *umem_odp, u64 user_virt,
+			       u64 bcnt, u64 access_mask, bool fault)
+{
+	struct ib_umem_odp_prefetch *prefetch;
+	u64 offset;
+
+	if (umem_odp->notifier.ops != &ib_umem_odp_cpu_ops)
+		return -EOPNOTSUPP;
+	if (access_mask & ~(u64)HMM_PFN_WRITE)
+		return -EINVAL;
+	if ((access_mask & HMM_PFN_WRITE) && !umem_odp->umem.writable)
+		return -EPERM;
+	if (user_virt < umem_odp->umem.address)
+		return -EFAULT;
+	offset = user_virt - umem_odp->umem.address;
+	if (offset > umem_odp->umem.length ||
+	    bcnt > umem_odp->umem.length - offset)
+		return -EFAULT;
+	if (!bcnt)
+		return 0;
+
+	prefetch = kmalloc_obj(*prefetch);
+	if (!prefetch)
+		return -ENOMEM;
+
+	INIT_WORK(&prefetch->work, ib_umem_odp_prefetch_work);
+	prefetch->umem_odp = umem_odp;
+	prefetch->user_virt = user_virt;
+	prefetch->bcnt = bcnt;
+	prefetch->access_mask = access_mask;
+	prefetch->fault = fault;
+	refcount_inc(&umem_odp->refs);
+	get_device(&umem_odp->umem.ibdev->dev);
+	queue_work(ib_odp_prefetch_wq, &prefetch->work);
+	return 0;
+}
+EXPORT_SYMBOL(ib_umem_odp_queue_prefetch);
 
 /**
  * ib_umem_odp_map_dma_and_lock - DMA map userspace memory in an ODP MR and lock it.
@@ -331,7 +471,7 @@ int ib_umem_odp_map_dma_and_lock(struct ib_umem_odp *umem_odp, u64 user_virt,
 	unsigned int page_shift, hmm_order, pfn_start_idx;
 	unsigned long num_pfns;
 	struct hmm_range range = {};
-	unsigned long timeout;
+	unsigned long timeout, deadline;
 
 	if (user_virt < ib_umem_start(umem_odp) ||
 	    user_virt + bcnt > ib_umem_end(umem_odp))
@@ -364,6 +504,7 @@ int ib_umem_odp_map_dma_and_lock(struct ib_umem_odp *umem_odp, u64 user_virt,
 
 	range.hmm_pfns = &(umem_odp->map.pfn_list[pfn_start_idx]);
 	timeout = msecs_to_jiffies(HMM_RANGE_DEFAULT_TIMEOUT);
+	deadline = jiffies + timeout;
 
 retry:
 	ret = hmm_range_fault_unlocked_timeout(&range, timeout);
@@ -375,7 +516,14 @@ retry:
 
 	mutex_lock(&umem_odp->umem_mutex);
 	if (mmu_interval_read_retry(&umem_odp->notifier, range.notifier_seq)) {
+		unsigned long now = jiffies;
+
 		mutex_unlock(&umem_odp->umem_mutex);
+		if (time_after_eq(now, deadline)) {
+			ret = -EBUSY;
+			goto out_put_mm;
+		}
+		timeout = deadline - now;
 		goto retry;
 	}
 

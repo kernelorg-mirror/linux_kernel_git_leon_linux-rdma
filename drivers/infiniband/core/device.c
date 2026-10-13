@@ -3239,10 +3239,14 @@ static int __init ib_core_init(void)
 	if (!ib_comp_unbound_wq)
 		goto err_comp;
 
+	ret = ib_umem_odp_init();
+	if (ret)
+		goto err_comp_unbound;
+
 	ret = class_register(&ib_class);
 	if (ret) {
 		pr_warn("Couldn't create InfiniBand device class\n");
-		goto err_comp_unbound;
+		goto err_odp;
 	}
 
 	rdma_nl_init();
@@ -3303,6 +3307,8 @@ err_addr:
 	addr_cleanup();
 err_ibnl:
 	class_unregister(&ib_class);
+err_odp:
+	ib_umem_odp_cleanup();
 err_comp_unbound:
 	destroy_workqueue(ib_comp_unbound_wq);
 err_comp:
@@ -3316,6 +3322,7 @@ err:
 
 static void __exit ib_core_cleanup(void)
 {
+	ib_umem_odp_cleanup();
 	unregister_netdevice_notifier(&nb_netdevice);
 	roce_gid_mgmt_cleanup();
 	rdma_nl_unregister(RDMA_NL_LS);

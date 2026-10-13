@@ -205,12 +205,15 @@ int __rxe_cleanup(struct rxe_pool_elem *elem, bool sleepable)
 			ret = wait_for_completion_timeout(&elem->complete,
 					msecs_to_jiffies(50000));
 
-			/* Shouldn't happen. There are still references to
-			 * the object but, rather than deadlock, free the
-			 * object or pass back to rdma-core.
-			 */
-			if (WARN_ON(!ret))
-				err = -ETIMEDOUT;
+			if (WARN_ON(!ret)) {
+				/* Active users can still be faulting. Keep MR
+				 * resources live until those users finish.
+				 */
+				if (pool->type == RXE_TYPE_MR)
+					wait_for_completion(&elem->complete);
+				else
+					err = -ETIMEDOUT;
+			}
 		}
 	} else {
 		unsigned long until = jiffies + RXE_POOL_TIMEOUT;

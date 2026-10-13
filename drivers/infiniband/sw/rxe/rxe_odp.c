@@ -10,34 +10,6 @@
 
 #include "rxe.h"
 
-static bool rxe_ib_invalidate_range(struct mmu_interval_notifier *mni,
-				    const struct mmu_notifier_range *range,
-				    unsigned long cur_seq)
-{
-	struct ib_umem_odp *umem_odp =
-		container_of(mni, struct ib_umem_odp, notifier);
-	unsigned long start, end;
-
-	if (!mmu_notifier_range_blockable(range))
-		return false;
-
-	mutex_lock(&umem_odp->umem_mutex);
-	mmu_interval_set_seq(mni, cur_seq);
-
-	start = max_t(u64, ib_umem_start(umem_odp), range->start);
-	end = min_t(u64, ib_umem_end(umem_odp), range->end);
-
-	/* update umem_odp->map.pfn_list */
-	ib_umem_odp_unmap_dma_pages(umem_odp, start, end);
-
-	mutex_unlock(&umem_odp->umem_mutex);
-	return true;
-}
-
-const struct mmu_interval_notifier_ops rxe_mn_ops = {
-	.invalidate = rxe_ib_invalidate_range,
-};
-
 #define RXE_PAGEFAULT_DEFAULT 0
 #define RXE_PAGEFAULT_RDONLY BIT(0)
 #define RXE_PAGEFAULT_SNAPSHOT BIT(1)
@@ -91,15 +63,12 @@ int rxe_odp_mr_init_user(struct rxe_dev *rxe, u64 start, u64 length,
 	if (!start && length == U64_MAX)
 		return -EOPNOTSUPP;
 
-	umem_odp = ib_umem_odp_get(&rxe->ib_dev, start, length, access_flags,
-				   &rxe_mn_ops);
+	umem_odp = ib_umem_odp_get_cpu(&rxe->ib_dev, start, length, access_flags);
 	if (IS_ERR(umem_odp)) {
 		rxe_dbg_mr(mr, "Unable to create umem_odp err = %d\n",
 			   (int)PTR_ERR(umem_odp));
 		return PTR_ERR(umem_odp);
 	}
-
-	umem_odp->private = mr;
 
 	mr->umem = &umem_odp->umem;
 	mr->access = access_flags;
@@ -441,51 +410,11 @@ enum resp_states rxe_odp_do_atomic_write(struct rxe_mr *mr, u64 iova, u64 value)
 	return RESPST_NONE;
 }
 
-struct prefetch_mr_work {
-	struct work_struct work;
-	u32 pf_flags;
-	u32 num_sge;
-	struct {
-		u64 io_virt;
-		struct rxe_mr *mr;
-		size_t length;
-	} frags[];
+struct rxe_odp_prefetch {
+	struct rxe_mr *mr;
+	u64 user_va;
+	size_t length;
 };
-
-static void rxe_ib_prefetch_mr_work(struct work_struct *w)
-{
-	struct prefetch_mr_work *work =
-		container_of(w, struct prefetch_mr_work, work);
-	int ret;
-	u32 i;
-
-	/*
-	 * We rely on IB/core that work is executed
-	 * if we have num_sge != 0 only.
-	 */
-	WARN_ON(!work->num_sge);
-	for (i = 0; i < work->num_sge; ++i) {
-		struct ib_umem_odp *umem_odp;
-
-		ret = rxe_odp_prefetch_and_lock(work->frags[i].mr,
-						    work->frags[i].io_virt,
-						    work->frags[i].length,
-						    work->pf_flags);
-		if (ret < 0) {
-			rxe_dbg_mr(work->frags[i].mr,
-				   "failed to prefetch the mr\n");
-			goto deref;
-		}
-
-		umem_odp = to_ib_umem_odp(work->frags[i].mr->umem);
-		mutex_unlock(&umem_odp->umem_mutex);
-
-deref:
-		rxe_put(work->frags[i].mr);
-	}
-
-	kvfree(work);
-}
 
 static int rxe_ib_prefetch_sg_list(struct ib_pd *ibpd,
 				   enum ib_uverbs_advise_mr_advice advice,
@@ -540,9 +469,9 @@ static int rxe_ib_advise_mr_prefetch(struct ib_pd *ibpd,
 {
 	struct rxe_pd *pd = container_of(ibpd, struct rxe_pd, ibpd);
 	u32 pf_flags = RXE_PAGEFAULT_DEFAULT;
-	struct prefetch_mr_work *work;
-	struct rxe_mr *mr;
-	u32 i;
+	struct rxe_odp_prefetch *prefetch;
+	u32 i, num_mrs = 0;
+	int ret = 0;
 
 	if (advice == IB_UVERBS_ADVISE_MR_ADVICE_PREFETCH)
 		pf_flags |= RXE_PAGEFAULT_RDONLY;
@@ -555,43 +484,57 @@ static int rxe_ib_advise_mr_prefetch(struct ib_pd *ibpd,
 		return rxe_ib_prefetch_sg_list(ibpd, advice, pf_flags, sg_list,
 					       num_sge);
 
-	/* Asynchronous call is "best-effort" and allowed to fail */
-	work = kvzalloc_flex(*work, frags, num_sge);
-	if (!work)
+	prefetch = kvcalloc(num_sge, sizeof(*prefetch), GFP_KERNEL);
+	if (!prefetch)
 		return -ENOMEM;
 
-	INIT_WORK(&work->work, rxe_ib_prefetch_mr_work);
-	work->pf_flags = pf_flags;
-	work->num_sge = num_sge;
-
+	/* Validate every fragment before scheduling best-effort prefetch. */
 	for (i = 0; i < num_sge; ++i) {
-		/* Takes a reference, which will be released in the queued work */
+		struct rxe_mr *mr;
+
 		mr = lookup_mr(pd, IB_ACCESS_LOCAL_WRITE | IB_ACCESS_ON_DEMAND,
 			       sg_list[i].lkey, RXE_LOOKUP_LOCAL);
 		if (!mr) {
-			mr = ERR_PTR(-EINVAL);
-			goto err;
+			ret = -EINVAL;
+			goto out_put;
 		}
-
-		work->frags[i].io_virt = sg_list[i].addr;
-		work->frags[i].length = sg_list[i].length;
-		work->frags[i].mr = mr;
+		prefetch[i].mr = mr;
+		num_mrs++;
+		if (advice == IB_UVERBS_ADVISE_MR_ADVICE_PREFETCH_WRITE &&
+		    !mr->umem->writable) {
+			ret = -EPERM;
+			goto out_put;
+		}
+		ret = rxe_odp_user_va(mr, sg_list[i].addr, sg_list[i].length,
+				      &prefetch[i].user_va);
+		if (ret)
+			goto out_put;
+		prefetch[i].length = sg_list[i].length;
 	}
 
-	queue_work(rxe_wq, &work->work);
+	for (i = 0; i < num_sge; ++i) {
+		struct ib_umem_odp *umem_odp =
+			to_ib_umem_odp(prefetch[i].mr->umem);
+		u64 access_mask = 0;
 
-	return 0;
-
- err:
-	/* rollback reference counts for the invalid request */
-	while (i > 0) {
-		i--;
-		rxe_put(work->frags[i].mr);
+		if (umem_odp->umem.writable && !(pf_flags & RXE_PAGEFAULT_RDONLY))
+			access_mask = HMM_PFN_WRITE;
+		ret = ib_umem_odp_queue_prefetch(umem_odp, prefetch[i].user_va,
+						 prefetch[i].length, access_mask,
+						 !(pf_flags & RXE_PAGEFAULT_SNAPSHOT));
+		rxe_put(prefetch[i].mr);
+		prefetch[i].mr = NULL;
+		if (ret)
+			break;
 	}
 
-	kvfree(work);
-
-	return PTR_ERR(mr);
+out_put:
+	for (i = 0; i < num_mrs; ++i) {
+		if (prefetch[i].mr)
+			rxe_put(prefetch[i].mr);
+	}
+	kvfree(prefetch);
+	return ret;
 }
 
 int rxe_ib_advise_mr(struct ib_pd *ibpd,
