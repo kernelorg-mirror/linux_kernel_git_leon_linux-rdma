@@ -423,14 +423,17 @@ static int rxe_ib_prefetch_sg_list(struct ib_pd *ibpd,
 {
 	struct rxe_pd *pd = container_of(ibpd, struct rxe_pd, ibpd);
 	int ret = 0;
+	int access = IB_ACCESS_ON_DEMAND;
 	u32 i;
+
+	if (advice == IB_UVERBS_ADVISE_MR_ADVICE_PREFETCH_WRITE)
+		access |= IB_ACCESS_LOCAL_WRITE;
 
 	for (i = 0; i < num_sge; ++i) {
 		struct rxe_mr *mr;
 		struct ib_umem_odp *umem_odp;
 
-		mr = lookup_mr(pd, IB_ACCESS_LOCAL_WRITE | IB_ACCESS_ON_DEMAND,
-			       sg_list[i].lkey, RXE_LOOKUP_LOCAL);
+		mr = lookup_mr(pd, access, sg_list[i].lkey, RXE_LOOKUP_LOCAL);
 
 		if (!mr) {
 			rxe_dbg_pd(pd, "mr with lkey %x not found\n",
@@ -472,12 +475,16 @@ static int rxe_ib_advise_mr_prefetch(struct ib_pd *ibpd,
 	struct rxe_odp_prefetch *prefetch;
 	u32 i, num_mrs = 0;
 	int ret = 0;
+	int access = IB_ACCESS_ON_DEMAND;
 
 	if (advice == IB_UVERBS_ADVISE_MR_ADVICE_PREFETCH)
 		pf_flags |= RXE_PAGEFAULT_RDONLY;
 
 	if (advice == IB_UVERBS_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT)
 		pf_flags |= RXE_PAGEFAULT_SNAPSHOT;
+
+	if (advice == IB_UVERBS_ADVISE_MR_ADVICE_PREFETCH_WRITE)
+		access |= IB_ACCESS_LOCAL_WRITE;
 
 	/* Synchronous call */
 	if (flags & IB_UVERBS_ADVISE_MR_FLAG_FLUSH)
@@ -492,8 +499,7 @@ static int rxe_ib_advise_mr_prefetch(struct ib_pd *ibpd,
 	for (i = 0; i < num_sge; ++i) {
 		struct rxe_mr *mr;
 
-		mr = lookup_mr(pd, IB_ACCESS_LOCAL_WRITE | IB_ACCESS_ON_DEMAND,
-			       sg_list[i].lkey, RXE_LOOKUP_LOCAL);
+		mr = lookup_mr(pd, access, sg_list[i].lkey, RXE_LOOKUP_LOCAL);
 		if (!mr) {
 			ret = -EINVAL;
 			goto out_put;
