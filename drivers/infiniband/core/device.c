@@ -56,6 +56,7 @@ MODULE_DESCRIPTION("core kernel InfiniBand API");
 MODULE_LICENSE("Dual BSD/GPL");
 
 struct workqueue_struct *ib_comp_wq;
+EXPORT_SYMBOL_GPL(ib_comp_wq);
 struct workqueue_struct *ib_comp_unbound_wq;
 struct workqueue_struct *ib_wq;
 EXPORT_SYMBOL_GPL(ib_wq);

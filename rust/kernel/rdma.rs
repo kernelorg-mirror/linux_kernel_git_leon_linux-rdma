@@ -63,6 +63,25 @@ pub use capabilities::{
     TagMatchingCapabilities, //
 };
 
+mod completion;
+pub use completion::{
+    Completion,
+    CompletionData,
+    CompletionOutput,
+    QueuePairIdentity, //
+};
+
+mod cq;
+pub use cq::{
+    CompletionAttributes,
+    CompletionCapacity,
+    CompletionCreation,
+    CompletionNotify,
+    CompletionQueue,
+    CompletionQueueOperations,
+    CompletionQueues, //
+};
+
 pub mod gid;
 
 mod device;
@@ -152,6 +171,19 @@ pub use provider::{
 pub mod odp;
 mod scatterlist;
 pub use scatterlist::ScatterGather;
+
+mod queued_event;
+mod srq;
+pub use srq::{
+    BasicSharedReceiveOperations,
+    BasicSharedReceiveQueues,
+    ReceiveRequest,
+    ReceiveRequests,
+    SharedReceiveAttributes,
+    SharedReceiveChange,
+    SharedReceiveEvent,
+    SharedReceiveQueue, //
+};
 
 mod statistics;
 pub use statistics::{
