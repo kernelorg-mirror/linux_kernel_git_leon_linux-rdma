@@ -466,15 +466,17 @@ int ib_umem_odp_map_dma_and_lock(struct ib_umem_odp *umem_odp, u64 user_virt,
 			__acquires(&umem_odp->umem_mutex)
 {
 	struct task_struct *owning_process  = NULL;
+	bool virt_dma = ib_uses_virt_dma(umem_odp->umem.ibdev);
 	struct mm_struct *owning_mm = umem_odp->umem.owning_mm;
-	int pfn_index, dma_index, ret = 0, start_idx;
-	unsigned int page_shift, hmm_order, pfn_start_idx;
-	unsigned long num_pfns;
+	int ret = 0;
+	unsigned int page_shift, hmm_order;
+	size_t pfn_index, dma_index, start_idx, pfn_start_idx, num_pfns;
 	struct hmm_range range = {};
 	unsigned long timeout, deadline;
 
 	if (user_virt < ib_umem_start(umem_odp) ||
-	    user_virt + bcnt > ib_umem_end(umem_odp))
+	    user_virt > ib_umem_end(umem_odp) ||
+	    bcnt > ib_umem_end(umem_odp) - user_virt)
 		return -EFAULT;
 
 	page_shift = umem_odp->page_shift;
@@ -495,6 +497,10 @@ int ib_umem_odp_map_dma_and_lock(struct ib_umem_odp *umem_odp, u64 user_virt,
 	range.end = ALIGN(user_virt + bcnt, 1UL << page_shift);
 	pfn_start_idx = (range.start - ib_umem_start(umem_odp)) >> PAGE_SHIFT;
 	num_pfns = (range.end - range.start) >> PAGE_SHIFT;
+	if ((num_pfns >> (page_shift - PAGE_SHIFT)) > INT_MAX) {
+		ret = -EOVERFLOW;
+		goto out_put_mm;
+	}
 	if (fault) {
 		range.default_flags = HMM_PFN_REQ_FAULT;
 
@@ -502,7 +508,12 @@ int ib_umem_odp_map_dma_and_lock(struct ib_umem_odp *umem_odp, u64 user_virt,
 			range.default_flags |= HMM_PFN_REQ_WRITE;
 	}
 
-	range.hmm_pfns = &(umem_odp->map.pfn_list[pfn_start_idx]);
+	/* Faults must not modify PFNs retained by a CPU or DMA mapping. */
+	range.hmm_pfns = kvcalloc(num_pfns, sizeof(*range.hmm_pfns), GFP_KERNEL);
+	if (!range.hmm_pfns) {
+		ret = -ENOMEM;
+		goto out_put_mm;
+	}
 	timeout = msecs_to_jiffies(HMM_RANGE_DEFAULT_TIMEOUT);
 	deadline = jiffies + timeout;
 
@@ -539,9 +550,6 @@ retry:
 		if (!(range.hmm_pfns[pfn_index] & HMM_PFN_VALID))
 			continue;
 
-		if (range.hmm_pfns[pfn_index] & HMM_PFN_DMA_MAPPED)
-			continue;
-
 		hmm_order = hmm_pfn_to_map_order(range.hmm_pfns[pfn_index]);
 		/* If a hugepage was detected and ODP wasn't set for, the umem
 		 * page_shift will be used, the opposite case is an error.
@@ -554,13 +562,61 @@ retry:
 			break;
 		}
 	}
-	/* upon success lock should stay on hold for the callee */
-	if (!ret)
+	/* CPU providers cannot access PCI BAR memory through ordinary mappings. */
+	if (!ret && virt_dma) {
+		for (pfn_index = 0; pfn_index < num_pfns; pfn_index++) {
+			unsigned long pfn = range.hmm_pfns[pfn_index];
+			struct page *page;
+
+			if (!(pfn & HMM_PFN_VALID))
+				continue;
+			page = hmm_pfn_to_page(pfn);
+			if (is_pci_p2pdma_page(page)) {
+				ret = -EOPNOTSUPP;
+				break;
+			}
+		}
+	}
+	/* Keep DMA ownership flags current when another fault mapped the same PFN. */
+	if (!ret && !virt_dma) {
+		for (pfn_index = 0, dma_index = start_idx; pfn_index < num_pfns;
+		     pfn_index += 1 << (page_shift - PAGE_SHIFT), dma_index++) {
+			unsigned long old = umem_odp->map.pfn_list[dma_index];
+			unsigned long pfn = range.hmm_pfns[pfn_index];
+
+			if ((old & HMM_PFN_DMA_MAPPED) && (pfn & HMM_PFN_VALID) &&
+			    hmm_pfn_to_phys(old) != hmm_pfn_to_phys(pfn)) {
+				ret = -EAGAIN;
+				break;
+			}
+		}
+	}
+	/* Upon success the lock stays held for the caller's device update. */
+	if (!ret) {
+		if (virt_dma) {
+			memcpy(&umem_odp->map.pfn_list[pfn_start_idx],
+			       range.hmm_pfns, num_pfns * sizeof(*range.hmm_pfns));
+		} else {
+			for (pfn_index = 0, dma_index = start_idx; pfn_index < num_pfns;
+			     pfn_index += 1 << (page_shift - PAGE_SHIFT), dma_index++) {
+				unsigned long *entry = &umem_odp->map.pfn_list[dma_index];
+				unsigned long pfn = range.hmm_pfns[pfn_index];
+
+				/* A snapshot must not discard a concurrently installed mapping. */
+				if (!(pfn & HMM_PFN_VALID) &&
+				    (*entry & HMM_PFN_DMA_MAPPED))
+					continue;
+				*entry = pfn | (*entry & (HMM_PFN_DMA_MAPPED |
+							 HMM_PFN_P2PDMA | HMM_PFN_P2PDMA_BUS));
+			}
+		}
 		ret = dma_index - start_idx;
-	else
+	} else {
 		mutex_unlock(&umem_odp->umem_mutex);
+	}
 
 out_put_mm:
+	kvfree(range.hmm_pfns);
 	mmput_async(owning_mm);
 out_put_task:
 	if (owning_process)
@@ -573,19 +629,25 @@ void ib_umem_odp_unmap_dma_pages(struct ib_umem_odp *umem_odp, u64 virt,
 				 u64 bound)
 {
 	struct ib_device *dev = umem_odp->umem.ibdev;
+	bool virt_dma = ib_uses_virt_dma(dev);
+	unsigned int shift = virt_dma ? PAGE_SHIFT : umem_odp->page_shift;
 	u64 addr;
 
 	lockdep_assert_held(&umem_odp->umem_mutex);
 
 	virt = max_t(u64, virt, ib_umem_start(umem_odp));
 	bound = min_t(u64, bound, ib_umem_end(umem_odp));
-	for (addr = virt; addr < bound; addr += BIT(umem_odp->page_shift)) {
+	for (addr = virt; addr < bound; addr += BIT(shift)) {
 		u64 offset = addr - ib_umem_start(umem_odp);
-		size_t idx = offset >> umem_odp->page_shift;
+		size_t idx = offset >> shift;
 		unsigned long pfn = umem_odp->map.pfn_list[idx];
 
-		if (!hmm_dma_unmap_pfn(dev->dma_device, &umem_odp->map, idx))
+		if (virt_dma) {
+			if (!(pfn & HMM_PFN_VALID))
+				continue;
+		} else if (!hmm_dma_unmap_pfn(dev->dma_device, &umem_odp->map, idx)) {
 			goto clear;
+		}
 
 		if (pfn & HMM_PFN_WRITE) {
 			struct page *page = hmm_pfn_to_page(pfn);
@@ -601,7 +663,8 @@ void ib_umem_odp_unmap_dma_pages(struct ib_umem_odp *umem_odp, u64 virt,
 			 */
 			set_page_dirty(head_page);
 		}
-		umem_odp->npages--;
+		if (!virt_dma)
+			umem_odp->npages--;
 clear:
 		umem_odp->map.pfn_list[idx] &= ~HMM_PFN_FLAGS;
 	}
