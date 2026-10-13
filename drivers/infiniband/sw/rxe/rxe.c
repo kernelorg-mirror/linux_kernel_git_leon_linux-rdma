@@ -230,8 +230,8 @@ static int rxe_newlink(const char *ibdev_name, struct net_device *ndev)
 
 	rxe = rxe_get_dev_from_net(ndev);
 	if (rxe) {
-		ib_device_put(&rxe->ib_dev);
 		rxe_err_dev(rxe, "already configured on %s\n", ndev->name);
+		ib_device_put(&rxe->ib_dev);
 		err = -EEXIST;
 		goto err;
 	}
