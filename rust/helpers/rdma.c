@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 
 #if IS_ENABLED(CONFIG_INFINIBAND)
-#include <linux/once.h>
+#include <linux/atomic.h>
+#include <linux/irqflags.h>
 #include <rdma/ib_addr.h>
 #include <rdma/ib_pmem.h>
 #include <rdma/ib_umem.h>
@@ -10,6 +11,39 @@
 __rust_helper bool rust_helper_ib_pmem_range(u64 start, size_t size)
 {
 	return ib_pmem_range(start, size);
+}
+
+__rust_helper void rust_helper_rust_rdma_init_provider_registry(atomic_t *state,
+							      void (*init)(void))
+{
+	unsigned long flags;
+
+	if (atomic_read_acquire(state) == 2)
+		return;
+
+	/* Exclude same-CPU reentry while the non-sleeping initializer runs. */
+	local_irq_save(flags);
+	if (atomic_cmpxchg(state, 0, 1) == 0) {
+		init();
+		atomic_set_release(state, 2);
+	} else {
+		atomic_cond_read_acquire(state, VAL == 2);
+	}
+	local_irq_restore(flags);
+}
+
+#if !IS_ENABLED(CONFIG_INFINIBAND_USER_ACCESS)
+__rust_helper int rust_helper__ib_copy_validate_udata_in(struct ib_udata *udata,
+						      void *req, size_t size,
+						      size_t minimum)
+{
+	return _ib_copy_validate_udata_in(udata, req, size, minimum);
+}
+#endif
+
+__rust_helper bool rust_helper_ib_device_try_get(struct ib_device *dev)
+{
+	return ib_device_try_get(dev);
 }
 
 __rust_helper bool rust_helper_rdma_protocol_iwarp(struct ib_device *dev, u32 port)

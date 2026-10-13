@@ -16,9 +16,87 @@ pub use access::{
     AccessFlags, //
 };
 
+mod capabilities;
+pub use capabilities::{
+    AtomicCapability,
+    CqCapabilities,
+    DeviceAttributes,
+    DeviceCapabilities,
+    DeviceCapability,
+    KernelCapabilities,
+    KernelCapability,
+    OdpCapabilities,
+    OdpSupport,
+    OdpSupportFlags,
+    OdpTransportCapability,
+    OdpTransportFlags,
+    RssCapabilities,
+    TagMatchingCapabilities, //
+};
+
+mod registry;
+
+mod context;
+pub use context::{
+    UserContextOperations,
+    UserContexts, //
+};
+
+mod mad;
+pub use mad::{
+    Mad,
+    MadDisposition,
+    MadFlag,
+    MadFlags,
+    MadHeader,
+    MadOutput,
+    MadRequest,
+    MadSource, //
+};
+
+mod modification;
+pub use modification::DeviceModification;
+
+mod port;
+pub use port::{
+    Mtu,
+    PhysicalState,
+    PortAttributes,
+    PortCapabilities,
+    PortCapability,
+    PortImmutable,
+    PortModification,
+    PortModify,
+    PortModifyFlags,
+    PortState, //
+};
+
+mod provider;
+pub use provider::{
+    DeviceOperations,
+    LinkLayer,
+    Operations, //
+};
+
 #[cfg(all(CONFIG_INFINIBAND_ON_DEMAND_PAGING, CONFIG_INFINIBAND_VIRT_DMA))]
 pub mod odp;
+mod statistics;
+pub use statistics::{
+    Statistics,
+    StatisticsDescription, //
+};
+
+mod sysfs;
+pub use sysfs::ReadOnlyAttribute;
+
+mod udata;
 pub mod umem;
+pub use udata::{
+    ContextData,
+    UserData,
+    UserInput, //
+};
+
 #[cfg(CONFIG_INFINIBAND_VIRT_DMA)]
 pub mod virt_dma;
 
@@ -35,6 +113,8 @@ pub mod virt_dma;
 /// Registered devices follow core unregistration, which drains queued cache events before
 /// final deallocation. Acquired registration references keep the DMA configuration and
 /// resources exposed by this interface valid until those references drain.
+/// If `T` implements [`DeviceOperations`], [`Operations<T>`] is installed and its pinned
+/// provider data remains initialized throughout every borrow and acquired registration reference.
 #[repr(transparent)]
 pub struct Device<T> {
     inner: Opaque<bindings::ib_device>,
@@ -56,6 +136,9 @@ impl<T> Device<T> {
     /// before final deallocation, including events published during this borrow.
     /// While registration references can be acquired, their lifetime must also retain the DMA
     /// configuration and resources exposed by this interface.
+    /// If `T` implements [`DeviceOperations`], [`Operations<T>`] must have been successfully
+    /// installed, and its pinned provider data must remain initialized for `'a` and for the
+    /// lifetime of every acquired registration reference.
     #[inline]
     pub unsafe fn from_raw<'a>(device: *mut bindings::ib_device) -> &'a Self {
         // SAFETY: The caller guarantees the invariant for 'a. The transparent wrapper exposes
