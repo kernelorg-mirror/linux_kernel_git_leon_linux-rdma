@@ -53,6 +53,28 @@ pub fn msecs_to_jiffies(msecs: Msecs) -> Jiffies {
     unsafe { bindings::__msecs_to_jiffies(msecs) }
 }
 
+/// Converts microseconds to jiffies using the kernel's timeout conversion.
+///
+/// Rounds up unless the input exceeds `jiffies_to_usecs(MAX_JIFFY_OFFSET)`, in which case
+/// it returns `MAX_JIFFY_OFFSET`. That threshold is evaluated in the C API's `unsigned int`
+/// microsecond type and can wrap; it is not a mathematical saturation threshold.
+#[inline]
+pub fn usecs_to_jiffies(usecs: u32) -> Jiffies {
+    // SAFETY: This scalar conversion is defined for every input value.
+    unsafe { bindings::__usecs_to_jiffies(usecs) }
+}
+
+/// Converts nanoseconds to jiffies using the scheduler's conversion.
+///
+/// Unlike the microsecond and millisecond conversions, this does not saturate at
+/// `MAX_JIFFY_OFFSET` or round up. Depending on `HZ`, intermediate arithmetic can overflow
+/// for inputs spanning decades. The result is truncated to [`Jiffies`] on 32-bit systems.
+#[inline]
+pub fn nsecs_to_jiffies(nsecs: u64) -> Jiffies {
+    // SAFETY: This scalar conversion is defined for every input value.
+    unsafe { bindings::nsecs_to_jiffies(nsecs) }
+}
+
 /// Trait for clock sources.
 ///
 /// Selection of the clock source depends on the use case. In some cases the usage of a
