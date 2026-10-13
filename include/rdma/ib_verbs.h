@@ -1926,7 +1926,9 @@ struct ib_qp_security {
 	struct ib_ports_pkeys  *ports_pkeys;
 	/* A list of all open shared QP handles.  Required to enforce security
 	 * properly for all users of a shared QP.
+	 * Writers hold both mutex and shared_qp_list_lock. Readers hold either.
 	 */
+	spinlock_t              shared_qp_list_lock;
 	struct list_head        shared_qp_list;
 	void                   *security;
 	bool			destroying;
@@ -1978,6 +1980,7 @@ struct ib_qp {
 	/*
 	 * Implementation details of the RDMA core, don't use in drivers:
 	 */
+	bool                          is_shared_target;
 	struct rdma_restrack_entry     res;
 
 	/* The counter the qp is bind to */

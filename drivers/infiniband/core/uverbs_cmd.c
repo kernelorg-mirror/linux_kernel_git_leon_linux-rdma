@@ -1456,6 +1456,10 @@ static int create_qp(struct uverbs_attr_bundle *attrs,
 		attr.source_qpn = cmd->source_qpn;
 	}
 
+	obj->uevent.event_file = READ_ONCE(attrs->ufile->default_async_file);
+	if (obj->uevent.event_file)
+		uverbs_uobject_get(&obj->uevent.event_file->uobj);
+
 	qp = ib_create_qp_user(device, pd, &attr, attrs, obj, KBUILD_MODNAME);
 	if (IS_ERR(qp)) {
 		ret = PTR_ERR(qp);
@@ -1464,9 +1468,6 @@ static int create_qp(struct uverbs_attr_bundle *attrs,
 	ib_qp_usecnt_inc(qp);
 
 	obj->uevent.uobject.object = qp;
-	obj->uevent.event_file = READ_ONCE(attrs->ufile->default_async_file);
-	if (obj->uevent.event_file)
-		uverbs_uobject_get(&obj->uevent.event_file->uobj);
 
 	if (xrcd) {
 		obj->uxrcd = container_of(xrcd_uobj, struct ib_uxrcd_object,
@@ -1501,6 +1502,8 @@ static int create_qp(struct uverbs_attr_bundle *attrs,
 	return uverbs_response(attrs, &resp, sizeof(resp));
 
 err_put:
+	ib_uverbs_release_uevent(&obj->uevent);
+	obj->uevent.event_file = NULL;
 	if (!IS_ERR(xrcd_uobj))
 		uobj_put_read(xrcd_uobj);
 	if (!IS_ERR_OR_NULL(pd))
@@ -1607,18 +1610,21 @@ static int ib_uverbs_open_qp(struct uverbs_attr_bundle *attrs)
 	INIT_LIST_HEAD(&obj->uevent.event_list);
 	INIT_LIST_HEAD(&obj->mcast_list);
 
-	qp = ib_open_qp(xrcd, &attr);
+	obj->uevent.uobject.user_handle = cmd.user_handle;
+	obj->uevent.event_file = READ_ONCE(attrs->ufile->default_async_file);
+	if (obj->uevent.event_file)
+		uverbs_uobject_get(&obj->uevent.event_file->uobj);
+
+	qp = ib_open_qp_user(xrcd, &attr, obj);
 	if (IS_ERR(qp)) {
 		ret = PTR_ERR(qp);
-		goto err_xrcd;
+		goto err_event;
 	}
 
 	obj->uevent.uobject.object = qp;
-	obj->uevent.uobject.user_handle = cmd.user_handle;
 
 	obj->uxrcd = container_of(xrcd_uobj, struct ib_uxrcd_object, uobject);
 	atomic_inc(&obj->uxrcd->refcnt);
-	qp->uobject = obj;
 	uobj_put_read(xrcd_uobj);
 	uobj_finalize_uobj_create(&obj->uevent.uobject, attrs);
 
@@ -1626,6 +1632,9 @@ static int ib_uverbs_open_qp(struct uverbs_attr_bundle *attrs)
 	resp.qp_handle = obj->uevent.uobject.id;
 	return uverbs_response(attrs, &resp, sizeof(resp));
 
+err_event:
+	ib_uverbs_release_uevent(&obj->uevent);
+	obj->uevent.event_file = NULL;
 err_xrcd:
 	uobj_put_read(xrcd_uobj);
 err_put:

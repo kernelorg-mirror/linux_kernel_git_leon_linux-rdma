@@ -1178,19 +1178,23 @@ static void __ib_qp_event_handler(struct ib_event *event, void *context)
 
 static void __ib_shared_qp_event_handler(struct ib_event *event, void *context)
 {
-	struct ib_qp *qp = context;
+	struct ib_qp *qp = event->element.qp;
 	unsigned long flags;
 
 	spin_lock_irqsave(&qp->device->qp_open_list_lock, flags);
+	/* The creator owns events until its shared handle is published. */
+	if (qp->uobject && qp->registered_event_handler)
+		qp->registered_event_handler(event, qp->qp_context);
 	list_for_each_entry(event->element.qp, &qp->open_list, open_list)
 		if (event->element.qp->event_handler)
 			event->element.qp->event_handler(event, event->element.qp->qp_context);
+	event->element.qp = qp;
 	spin_unlock_irqrestore(&qp->device->qp_open_list_lock, flags);
 }
 
 static struct ib_qp *__ib_open_qp(struct ib_qp *real_qp,
 				  void (*event_handler)(struct ib_event *, void *),
-				  void *qp_context)
+				  void *qp_context, struct ib_uqp_object *uobj)
 {
 	struct ib_qp *qp;
 	unsigned long flags;
@@ -1201,29 +1205,32 @@ static struct ib_qp *__ib_open_qp(struct ib_qp *real_qp,
 		return ERR_PTR(-ENOMEM);
 
 	qp->real_qp = real_qp;
+	qp->device = real_qp->device;
+	qp->event_handler = event_handler;
+	qp->qp_context = qp_context;
+	qp->qp_num = real_qp->qp_num;
+	qp->qp_type = real_qp->qp_type;
+	qp->uobject = uobj;
 	err = ib_open_shared_qp_security(qp, real_qp->device);
 	if (err) {
 		kfree(qp);
 		return ERR_PTR(err);
 	}
 
-	qp->real_qp = real_qp;
 	atomic_inc(&real_qp->usecnt);
-	qp->device = real_qp->device;
-	qp->event_handler = event_handler;
-	qp->qp_context = qp_context;
-	qp->qp_num = real_qp->qp_num;
-	qp->qp_type = real_qp->qp_type;
 
 	spin_lock_irqsave(&real_qp->device->qp_open_list_lock, flags);
 	list_add(&qp->open_list, &real_qp->open_list);
+	/* No event may use the creator through the real QP after handover. */
+	real_qp->uobject = NULL;
 	spin_unlock_irqrestore(&real_qp->device->qp_open_list_lock, flags);
 
 	return qp;
 }
 
-struct ib_qp *ib_open_qp(struct ib_xrcd *xrcd,
-			 struct ib_qp_open_attr *qp_open_attr)
+struct ib_qp *ib_open_qp_user(struct ib_xrcd *xrcd,
+			    struct ib_qp_open_attr *qp_open_attr,
+			    struct ib_uqp_object *uobj)
 {
 	struct ib_qp *qp, *real_qp;
 
@@ -1237,36 +1244,43 @@ struct ib_qp *ib_open_qp(struct ib_xrcd *xrcd,
 		return ERR_PTR(-EINVAL);
 	}
 	qp = __ib_open_qp(real_qp, qp_open_attr->event_handler,
-			  qp_open_attr->qp_context);
+			  qp_open_attr->qp_context, uobj);
 	up_read(&xrcd->tgt_qps_rwsem);
 	return qp;
+}
+EXPORT_SYMBOL(ib_open_qp_user);
+
+struct ib_qp *ib_open_qp(struct ib_xrcd *xrcd,
+			 struct ib_qp_open_attr *qp_open_attr)
+{
+	return ib_open_qp_user(xrcd, qp_open_attr, NULL);
 }
 EXPORT_SYMBOL(ib_open_qp);
 
 static struct ib_qp *create_xrc_qp_user(struct ib_qp *qp,
-					struct ib_qp_init_attr *qp_init_attr)
+					struct ib_qp_init_attr *qp_init_attr,
+					struct ib_uqp_object *uobj)
 {
 	struct ib_qp *real_qp = qp;
 	int err;
 
-	qp->event_handler = __ib_shared_qp_event_handler;
-	qp->qp_context = qp;
 	qp->pd = NULL;
 	qp->send_cq = qp->recv_cq = NULL;
 	qp->srq = NULL;
-	qp->xrcd = qp_init_attr->xrcd;
 	atomic_inc(&qp_init_attr->xrcd->usecnt);
-	INIT_LIST_HEAD(&qp->open_list);
 
 	qp = __ib_open_qp(real_qp, qp_init_attr->event_handler,
-			  qp_init_attr->qp_context);
-	if (IS_ERR(qp))
+			  qp_init_attr->qp_context, uobj);
+	if (IS_ERR(qp)) {
+		atomic_dec(&qp_init_attr->xrcd->usecnt);
 		return qp;
+	}
 
 	err = xa_err(xa_store(&qp_init_attr->xrcd->tgt_qps, real_qp->qp_num,
 			      real_qp, GFP_KERNEL));
 	if (err) {
 		ib_close_qp(qp);
+		atomic_dec(&qp_init_attr->xrcd->usecnt);
 		return ERR_PTR(err);
 	}
 	return qp;
@@ -1275,7 +1289,8 @@ static struct ib_qp *create_xrc_qp_user(struct ib_qp *qp,
 static struct ib_qp *create_qp(struct ib_device *dev, struct ib_pd *pd,
 			       struct ib_qp_init_attr *attr,
 			       struct uverbs_attr_bundle *uattrs,
-			       struct ib_uqp_object *uobj, const char *caller)
+			       struct ib_uqp_object *uobj, bool shared,
+			       const char *caller)
 {
 	struct ib_qp *qp;
 	int ret;
@@ -1293,12 +1308,19 @@ static struct ib_qp *create_qp(struct ib_device *dev, struct ib_pd *pd,
 	qp->real_qp = qp;
 
 	qp->qp_type = attr->qp_type;
+	if (qp->qp_type == IB_QPT_XRC_TGT)
+		qp->xrcd = attr->xrcd;
 	qp->rwq_ind_tbl = attr->rwq_ind_tbl;
 	qp->srq = attr->srq;
 	qp->event_handler = __ib_qp_event_handler;
 	qp->registered_event_handler = attr->event_handler;
 	qp->port = attr->port_num;
 	qp->qp_context = attr->qp_context;
+	qp->is_shared_target = shared;
+	if (shared) {
+		INIT_LIST_HEAD(&qp->open_list);
+		qp->event_handler = __ib_shared_qp_event_handler;
+	}
 
 	spin_lock_init(&qp->mr_lock);
 	xa_init(&qp->comp_cntrs);
@@ -1361,19 +1383,18 @@ struct ib_qp *ib_create_qp_user(struct ib_device *dev, struct ib_pd *pd,
 	struct ib_qp *qp, *xrc_qp;
 
 	if (attr->qp_type == IB_QPT_XRC_TGT)
-		qp = create_qp(dev, pd, attr, NULL, NULL, caller);
+		qp = create_qp(dev, pd, attr, NULL, uobj, true, caller);
 	else
-		qp = create_qp(dev, pd, attr, uattrs, uobj, NULL);
+		qp = create_qp(dev, pd, attr, uattrs, uobj, false, NULL);
 	if (attr->qp_type != IB_QPT_XRC_TGT || IS_ERR(qp))
 		return qp;
 
-	xrc_qp = create_xrc_qp_user(qp, attr);
+	xrc_qp = create_xrc_qp_user(qp, attr, uobj);
 	if (IS_ERR(xrc_qp)) {
 		ib_destroy_qp(qp);
 		return xrc_qp;
 	}
 
-	xrc_qp->uobject = uobj;
 	return xrc_qp;
 }
 EXPORT_SYMBOL(ib_create_qp_user);
@@ -1425,7 +1446,7 @@ struct ib_qp *ib_create_qp_kernel(struct ib_pd *pd,
 	if (qp_init_attr->cap.max_rdma_ctxs)
 		rdma_rw_init_qp(device, qp_init_attr);
 
-	qp = create_qp(device, pd, qp_init_attr, NULL, NULL, caller);
+	qp = create_qp(device, pd, qp_init_attr, NULL, NULL, false, caller);
 	if (IS_ERR(qp))
 		return qp;
 

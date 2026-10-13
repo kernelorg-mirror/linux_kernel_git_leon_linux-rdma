@@ -88,6 +88,7 @@ static int enforce_qp_pkey_security(u16 pkey,
 	if (ret)
 		return ret;
 
+	spin_lock(&qp_sec->shared_qp_list_lock);
 	list_for_each_entry(shared_qp_sec,
 			    &qp_sec->shared_qp_list,
 			    shared_qp_list) {
@@ -95,9 +96,10 @@ static int enforce_qp_pkey_security(u16 pkey,
 					      subnet_prefix,
 					      pkey);
 		if (ret)
-			return ret;
+			break;
 	}
-	return 0;
+	spin_unlock(&qp_sec->shared_qp_list_lock);
+	return ret;
 }
 
 /* The caller of this function must hold the QP security
@@ -171,8 +173,10 @@ static void qp_to_error(struct ib_qp_security *sec)
 		     &attr,
 		     IB_QP_STATE);
 
-	if (sec->qp->event_handler && sec->qp->qp_context) {
+	/* Shared targets notify their handles below, including pending opens. */
+	if (!sec->qp->is_shared_target && sec->qp->event_handler) {
 		event.element.qp = sec->qp;
+		event.device = sec->qp->device;
 		sec->qp->event_handler(&event,
 				       sec->qp->qp_context);
 	}
@@ -182,7 +186,7 @@ static void qp_to_error(struct ib_qp_security *sec)
 			    shared_qp_list) {
 		struct ib_qp *qp = shared_qp_sec->qp;
 
-		if (qp->event_handler && qp->qp_context) {
+		if (qp->event_handler) {
 			event.element.qp = qp;
 			event.device = qp->device;
 			qp->event_handler(&event,
@@ -390,9 +394,12 @@ int ib_open_shared_qp_security(struct ib_qp *qp, struct ib_device *dev)
 	if (ret)
 		goto ret;
 
-	if (qp != real_qp)
+	if (qp != real_qp) {
+		spin_lock(&real_qp->qp_sec->shared_qp_list_lock);
 		list_add(&qp->qp_sec->shared_qp_list,
 			 &real_qp->qp_sec->shared_qp_list);
+		spin_unlock(&real_qp->qp_sec->shared_qp_list_lock);
+	}
 ret:
 	mutex_unlock(&real_qp->qp_sec->mutex);
 	if (ret)
@@ -406,7 +413,9 @@ void ib_close_shared_qp_security(struct ib_qp_security *sec)
 	struct ib_qp *real_qp = sec->qp->real_qp;
 
 	mutex_lock(&real_qp->qp_sec->mutex);
+	spin_lock(&real_qp->qp_sec->shared_qp_list_lock);
 	list_del(&sec->shared_qp_list);
+	spin_unlock(&real_qp->qp_sec->shared_qp_list_lock);
 	mutex_unlock(&real_qp->qp_sec->mutex);
 
 	destroy_qp_security(sec);
@@ -435,6 +444,7 @@ int ib_create_qp_security(struct ib_qp *qp, struct ib_device *dev)
 	qp->qp_sec->qp = qp;
 	qp->qp_sec->dev = dev;
 	mutex_init(&qp->qp_sec->mutex);
+	spin_lock_init(&qp->qp_sec->shared_qp_list_lock);
 	INIT_LIST_HEAD(&qp->qp_sec->shared_qp_list);
 	atomic_set(&qp->qp_sec->error_list_count, 0);
 	init_completion(&qp->qp_sec->error_complete);

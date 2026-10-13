@@ -277,8 +277,8 @@ static int UVERBS_HANDLER(UVERBS_METHOD_QP_CREATE)(
 
 	return ret;
 err_put:
-	if (obj->uevent.event_file)
-		uverbs_uobject_put(&obj->uevent.event_file->uobj);
+	ib_uverbs_release_uevent(&obj->uevent);
+	obj->uevent.event_file = NULL;
 	return ret;
 };
 

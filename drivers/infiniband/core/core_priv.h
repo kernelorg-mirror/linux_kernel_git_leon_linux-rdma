@@ -323,6 +323,9 @@ struct ib_qp *ib_create_qp_user(struct ib_device *dev, struct ib_pd *pd,
 				struct ib_qp_init_attr *attr,
 				struct uverbs_attr_bundle *uattrs,
 				struct ib_uqp_object *uobj, const char *caller);
+struct ib_qp *ib_open_qp_user(struct ib_xrcd *xrcd,
+			    struct ib_qp_open_attr *qp_open_attr,
+			    struct ib_uqp_object *uobj);
 
 void ib_qp_usecnt_inc(struct ib_qp *qp);
 void ib_qp_usecnt_dec(struct ib_qp *qp);
