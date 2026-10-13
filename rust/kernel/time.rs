@@ -29,6 +29,7 @@ use core::ops;
 
 pub mod delay;
 pub mod hrtimer;
+pub mod timer;
 
 /// The number of nanoseconds per microsecond.
 pub const NSEC_PER_USEC: i64 = bindings::NSEC_PER_USEC as i64;

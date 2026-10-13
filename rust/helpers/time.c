@@ -3,6 +3,17 @@
 #include <linux/delay.h>
 #include <linux/ktime.h>
 #include <linux/timekeeping.h>
+#include <linux/timer.h>
+
+__rust_helper bool rust_helper_timer_pending(const struct timer_list *timer)
+{
+	return timer_pending(timer);
+}
+
+__rust_helper unsigned long rust_helper_read_jiffies(void)
+{
+	return READ_ONCE(jiffies);
+}
 
 __rust_helper void rust_helper_fsleep(unsigned long usecs)
 {
