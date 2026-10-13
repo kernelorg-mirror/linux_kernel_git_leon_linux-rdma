@@ -187,7 +187,8 @@ static int populate_mtt(__be64 *pas, size_t start, size_t nentries,
 			dma_addr |= MLX5_IB_MTT_WRITE;
 
 		pas[i] = cpu_to_be64(dma_addr);
-		odp->npages++;
+		if (!(pfn & HMM_PFN_DMA_MAPPED))
+			odp->npages++;
 	}
 	return 0;
 }
