@@ -16,6 +16,26 @@ pub use access::{
     AccessFlags, //
 };
 
+mod address;
+pub use address::{
+    AddressAttributes,
+    AddressKind,
+    AddressRequest,
+    GlobalRoute,
+    NetworkType,
+    SourceGid, //
+};
+
+mod ah;
+pub use ah::{
+    AddressCreateFlag,
+    AddressCreateFlags,
+    AddressHandleOperations,
+    AddressHandles,
+    AddressReleaseFlag,
+    AddressReleaseFlags, //
+};
+
 mod capabilities;
 pub use capabilities::{
     AtomicCapability,
@@ -69,6 +89,15 @@ pub use modification::DeviceModification;
 
 mod netdev;
 pub use netdev::EthernetLink;
+
+mod pd;
+pub use pd::{
+    ProtectionDomainFlag,
+    ProtectionDomainFlags,
+    ProtectionDomainOperations,
+    ProtectionDomains,
+    ReleaseError, //
+};
 
 mod port;
 pub use port::{

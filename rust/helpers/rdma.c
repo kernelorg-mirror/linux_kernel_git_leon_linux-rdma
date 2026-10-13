@@ -113,4 +113,10 @@ __rust_helper struct page *rust_helper_ib_virt_dma_to_page(u64 addr)
 {
 	return ib_virt_dma_to_page(addr);
 }
+
+__rust_helper enum rdma_network_type
+rust_helper_rdma_gid_attr_network_type(const struct ib_gid_attr *attr)
+{
+	return rdma_gid_attr_network_type(attr);
+}
 #endif
