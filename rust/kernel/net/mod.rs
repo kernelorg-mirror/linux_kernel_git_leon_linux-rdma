@@ -7,3 +7,5 @@ pub mod phy;
 
 pub mod netlink;
 pub mod skbuff;
+
+pub mod namespace;

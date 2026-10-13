@@ -540,6 +540,7 @@ void net_passive_dec(struct net *net)
 		llist_add(&net->defer_free_list, &defer_free_list);
 	}
 }
+EXPORT_SYMBOL_GPL(net_passive_dec);
 
 void net_drop_ns(struct ns_common *ns)
 {

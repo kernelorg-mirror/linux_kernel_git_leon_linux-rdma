@@ -94,6 +94,17 @@ config RUST_SHARED_VMALLOC_KUNIT_TEST
 
 	  If unsure, say N.
 
+config RUST_NET_NAMESPACE_KUNIT_TEST
+	bool "KUnit tests for Rust namespace ownership" if !KUNIT_ALL_TESTS
+	depends on NET
+	default KUNIT_ALL_TESTS
+	help
+	  This option tests typed per-namespace registration, failure rollback,
+	  reader drainage and stale-key rejection after registration is replaced.
+	  These tests are intended for development, not regular kernel use.
+
+	  If unsure, say N.
+
 config RUST_SKBUFF_KUNIT_TEST
 	bool "KUnit tests for Rust socket buffers" if !KUNIT_ALL_TESTS
 	depends on NET

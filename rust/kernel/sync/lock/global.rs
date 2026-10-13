@@ -270,7 +270,8 @@ macro_rules! global_lock {
             ::core::stringify!($name),
             ")."
         )]
-        #[allow(non_camel_case_types, unreachable_pub)]
+        // The marker type shares the static's name and its uppercase naming convention.
+        #[allow(non_camel_case_types, unreachable_pub, clippy::upper_case_acronyms)]
         $pub enum $name {}
 
         impl $crate::sync::lock::GlobalLockBackend for $name {
