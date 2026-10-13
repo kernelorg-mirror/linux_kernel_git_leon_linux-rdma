@@ -122,10 +122,8 @@ static int rxe_modify_device(struct ib_device *ibdev,
 	if (mask & IB_DEVICE_MODIFY_SYS_IMAGE_GUID)
 		rxe->attr.sys_image_guid = cpu_to_be64(attr->sys_image_guid);
 
-	if (mask & IB_DEVICE_MODIFY_NODE_DESC) {
-		memcpy(rxe->ib_dev.node_desc,
-		       attr->node_desc, sizeof(rxe->ib_dev.node_desc));
-	}
+	if (mask & IB_DEVICE_MODIFY_NODE_DESC)
+		ib_set_node_desc(ibdev, attr->node_desc);
 
 	return 0;
 

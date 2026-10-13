@@ -355,7 +355,7 @@ static int hns_roce_modify_device(struct ib_device *ib_dev, int mask,
 
 	if (mask & IB_DEVICE_MODIFY_NODE_DESC) {
 		spin_lock_irqsave(&to_hr_dev(ib_dev)->sm_lock, flags);
-		memcpy(ib_dev->node_desc, props->node_desc, NODE_DESC_SIZE);
+		ib_set_node_desc(ib_dev, props->node_desc);
 		spin_unlock_irqrestore(&to_hr_dev(ib_dev)->sm_lock, flags);
 	}
 

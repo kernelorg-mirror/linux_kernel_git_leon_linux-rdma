@@ -283,7 +283,7 @@ int bnxt_re_modify_device(struct ib_device *ibdev,
 	if (!(device_modify_mask & IB_DEVICE_MODIFY_NODE_DESC))
 		return 0;
 
-	memcpy(ibdev->node_desc, device_modify->node_desc, IB_DEVICE_NODE_DESC_MAX);
+	ib_set_node_desc(ibdev, device_modify->node_desc);
 	return 0;
 }
 

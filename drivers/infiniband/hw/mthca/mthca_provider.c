@@ -177,8 +177,7 @@ static int mthca_modify_device(struct ib_device *ibdev,
 	if (mask & IB_DEVICE_MODIFY_NODE_DESC) {
 		if (mutex_lock_interruptible(&to_mdev(ibdev)->cap_mask_mutex))
 			return -ERESTARTSYS;
-		memcpy(ibdev->node_desc, props->node_desc,
-		       IB_DEVICE_NODE_DESC_MAX);
+		ib_set_node_desc(ibdev, props->node_desc);
 		mutex_unlock(&to_mdev(ibdev)->cap_mask_mutex);
 	}
 

@@ -1805,7 +1805,7 @@ static int mlx5_ib_modify_device(struct ib_device *ibdev, int mask,
 	if (err)
 		return err;
 
-	memcpy(ibdev->node_desc, props->node_desc, IB_DEVICE_NODE_DESC_MAX);
+	ib_set_node_desc(ibdev, props->node_desc);
 
 	return err;
 }

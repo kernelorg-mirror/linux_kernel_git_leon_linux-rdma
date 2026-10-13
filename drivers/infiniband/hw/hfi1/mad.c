@@ -554,7 +554,7 @@ static int __subn_get_opa_nodedesc(struct opa_smp *smp, u32 am,
 
 	nd = (struct opa_node_description *)data;
 
-	memcpy(nd->data, ibdev->node_desc, sizeof(nd->data));
+	ib_get_node_desc(ibdev, nd->data);
 
 	if (resp_len)
 		*resp_len += sizeof(*nd);

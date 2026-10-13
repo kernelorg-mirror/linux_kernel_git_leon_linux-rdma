@@ -1416,8 +1416,7 @@ static int modify_device(struct ib_device *device,
 	}
 
 	if (device_modify_mask & IB_DEVICE_MODIFY_NODE_DESC) {
-		memcpy(device->node_desc, device_modify->node_desc,
-		       IB_DEVICE_NODE_DESC_MAX);
+		ib_set_node_desc(device, device_modify->node_desc);
 		for (i = 0; i < dd->num_pports; i++) {
 			struct hfi1_ibport *ibp = &dd->pport[i].ibport_data;
 

@@ -151,8 +151,7 @@ static int ionic_modify_device(struct ib_device *ibdev, int mask,
 		return -EOPNOTSUPP;
 
 	if (mask & IB_DEVICE_MODIFY_NODE_DESC)
-		memcpy(dev->ibdev.node_desc, attr->node_desc,
-		       IB_DEVICE_NODE_DESC_MAX);
+		ib_set_node_desc(&dev->ibdev, attr->node_desc);
 
 	return 0;
 }
@@ -195,7 +194,10 @@ static ssize_t hca_type_show(struct device *device,
 	struct ionic_ibdev *dev =
 		rdma_device_to_drv_device(device, struct ionic_ibdev, ibdev);
 
-	return sysfs_emit(buf, "%.64s\n", dev->ibdev.node_desc);
+	char desc[IB_DEVICE_NODE_DESC_MAX];
+
+	ib_get_node_desc(&dev->ibdev, desc);
+	return sysfs_emit(buf, "%.64s\n", desc);
 }
 static DEVICE_ATTR_RO(hca_type);
 

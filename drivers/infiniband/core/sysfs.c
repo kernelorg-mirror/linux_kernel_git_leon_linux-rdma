@@ -1308,8 +1308,10 @@ static ssize_t node_desc_show(struct device *device,
 			      struct device_attribute *attr, char *buf)
 {
 	struct ib_device *dev = rdma_device_to_ibdev(device);
+	char desc[IB_DEVICE_NODE_DESC_MAX];
 
-	return sysfs_emit(buf, "%.64s\n", dev->node_desc);
+	ib_get_node_desc(dev, desc);
+	return sysfs_emit(buf, "%.64s\n", desc);
 }
 
 static ssize_t node_desc_store(struct device *device,

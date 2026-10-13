@@ -620,6 +620,8 @@ struct ib_device *_ib_alloc_device(size_t size, struct net *net)
 	rdma_init_coredev(&device->coredev, device, net);
 
 	INIT_LIST_HEAD(&device->event_handler_list);
+	spin_lock_init(&device->node_desc_lock);
+	mutex_init(&device->modify_lock);
 	spin_lock_init(&device->qp_open_list_lock);
 	init_rwsem(&device->event_handler_rwsem);
 	mutex_init(&device->unregistration_lock);
@@ -2685,6 +2687,43 @@ int ib_query_pkey(struct ib_device *device,
 EXPORT_SYMBOL(ib_query_pkey);
 
 /**
+ * ib_get_node_desc - Copy the device node description
+ * @device: Device to query
+ * @desc: Output buffer of IB_DEVICE_NODE_DESC_MAX bytes
+ *
+ * Serializes the copy against updates made through ib_set_node_desc().
+ * The description is a fixed-width byte array and need not be NUL-terminated.
+ */
+void ib_get_node_desc(struct ib_device *device, char *desc)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&device->node_desc_lock, flags);
+	memcpy(desc, device->node_desc, IB_DEVICE_NODE_DESC_MAX);
+	spin_unlock_irqrestore(&device->node_desc_lock, flags);
+}
+EXPORT_SYMBOL(ib_get_node_desc);
+
+/**
+ * ib_set_node_desc - Replace the device node description
+ * @device: Device to update
+ * @desc: Input buffer of IB_DEVICE_NODE_DESC_MAX initialized bytes
+ *
+ * Serializes updates with other users of these accessors, including sysfs
+ * reads. Drivers using this accessor must also use ib_get_node_desc() for
+ * concurrent reads instead of directly accessing node_desc.
+ */
+void ib_set_node_desc(struct ib_device *device, const char *desc)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&device->node_desc_lock, flags);
+	memcpy(device->node_desc, desc, IB_DEVICE_NODE_DESC_MAX);
+	spin_unlock_irqrestore(&device->node_desc_lock, flags);
+}
+EXPORT_SYMBOL(ib_set_node_desc);
+
+/**
  * ib_modify_device - Change IB device attributes
  * @device:Device to modify
  * @device_modify_mask:Mask of attributes to change
@@ -2692,16 +2731,23 @@ EXPORT_SYMBOL(ib_query_pkey);
  *
  * ib_modify_device() changes a device's attributes as specified by
  * the @device_modify_mask and @device_modify structure.
+ * Must be called from sleepable context.
  */
 int ib_modify_device(struct ib_device *device,
 		     int device_modify_mask,
 		     struct ib_device_modify *device_modify)
 {
+	int ret;
+
 	if (!device->ops.modify_device)
 		return -EOPNOTSUPP;
 
-	return device->ops.modify_device(device, device_modify_mask,
-					 device_modify);
+	if (mutex_lock_interruptible(&device->modify_lock))
+		return -ERESTARTSYS;
+	ret = device->ops.modify_device(device, device_modify_mask,
+				       device_modify);
+	mutex_unlock(&device->modify_lock);
+	return ret;
 }
 EXPORT_SYMBOL(ib_modify_device);
 

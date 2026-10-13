@@ -3004,6 +3004,8 @@ struct ib_device {
 	u64			     uverbs_cmd_mask;
 
 	char			     node_desc[IB_DEVICE_NODE_DESC_MAX];
+	spinlock_t		     node_desc_lock;
+	struct mutex		     modify_lock;
 	__be64			     node_guid;
 	u32			     local_dma_lkey;
 	u16                          is_switch:1;
@@ -3761,6 +3763,9 @@ int ib_set_vf_guid(struct ib_device *device, int vf, u32 port, u64 guid,
 
 int ib_query_pkey(struct ib_device *device,
 		  u32 port_num, u16 index, u16 *pkey);
+
+void ib_get_node_desc(struct ib_device *device, char *desc);
+void ib_set_node_desc(struct ib_device *device, const char *desc);
 
 int ib_modify_device(struct ib_device *device,
 		     int device_modify_mask,
