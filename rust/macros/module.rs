@@ -274,11 +274,14 @@ macro_rules! parse_ordered_fields {
 
         let mut ordered_keys: Vec<&str> = Vec::new();
         for key in EXPECTED_KEYS {
-            if seen_keys.iter().any(|e| e == key) {
+            if *key != "initcall" && seen_keys.iter().any(|e| e == key) {
                 ordered_keys.push(key);
             }
         }
 
+        // Driver wrappers may append metadata after the caller's initcall selection.
+        // Keep the existing metadata order without imposing a position on this option.
+        seen_keys.retain(|key| key != "initcall");
         if seen_keys != ordered_keys {
             Err(Error::new(
                 span,
@@ -374,7 +377,21 @@ pub(crate) struct ModuleInfo {
     alias: Option<Punctuated<AsciiLitStr, Token![,]>>,
     firmware: Option<Punctuated<AsciiLitStr, Token![,]>>,
     imports_ns: Option<Punctuated<AsciiLitStr, Token![,]>>,
+    initcall: Option<AsciiLitStr>,
     params: Option<Punctuated<Parameter, Token![,]>>,
+}
+
+impl ModuleInfo {
+    fn initcall_section(&self) -> Result<&'static str> {
+        match self.initcall.as_ref().map(|level| level.value()).as_deref() {
+            None | Some("device") => Ok(".initcall6.init"),
+            Some("late") => Ok(".initcall7.init"),
+            Some(_) => Err(Error::new_spanned(
+                &self.initcall,
+                "expected device or late",
+            )),
+        }
+    }
 }
 
 impl Parse for ModuleInfo {
@@ -405,6 +422,7 @@ impl Parse for ModuleInfo {
                 bracketed!(list in input);
                 Punctuated::parse_terminated(&list)?
             },
+            initcall => input.parse()?,
             params => {
                 let list;
                 braced!(list in input);
@@ -421,6 +439,7 @@ impl Parse for ModuleInfo {
             alias,
             firmware,
             imports_ns,
+            initcall,
             params,
         })
     }
@@ -437,6 +456,7 @@ pub(crate) fn module(info: ModuleInfo) -> Result<TokenStream> {
         firmware,
         imports_ns,
         params: _,
+        initcall: _,
     } = &info;
 
     // Rust does not allow hyphens in identifiers, use underscore instead.
@@ -480,7 +500,7 @@ pub(crate) fn module(info: ModuleInfo) -> Result<TokenStream> {
     let ident_init = format_ident!("__{ident}_init");
     let ident_exit = format_ident!("__{ident}_exit");
     let ident_initcall = format_ident!("__{ident}_initcall");
-    let initcall_section = ".initcall6.init";
+    let initcall_section = info.initcall_section()?;
 
     let global_asm = format!(
         r#".section "{initcall_section}", "a"
@@ -651,4 +671,47 @@ pub(crate) fn module(info: ModuleInfo) -> Result<TokenStream> {
             #params_ts
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ModuleInfo;
+
+    #[test]
+    fn builtin_initcall_levels() {
+        for (field, section) in [
+            ("", ".initcall6.init"),
+            ("initcall: \"device\",", ".initcall6.init"),
+            ("initcall: \"late\",", ".initcall7.init"),
+        ] {
+            let info: ModuleInfo = syn::parse_str(&format!(
+                "type: Driver, name: \"test\", license: \"GPL\", {field}"
+            ))
+            .unwrap();
+            assert_eq!(info.initcall_section().unwrap(), section);
+        }
+    }
+
+    #[test]
+    fn initcall_accepts_wrapper_appended_namespace() {
+        for fields in [
+            "initcall: \"late\", imports_ns: [\"PWM\"],",
+            "imports_ns: [\"PWM\"], initcall: \"late\",",
+        ] {
+            let info: ModuleInfo = syn::parse_str(&format!(
+                "type: Driver, name: \"test\", license: \"GPL\", {fields}"
+            ))
+            .unwrap();
+            assert_eq!(info.initcall_section().unwrap(), ".initcall7.init");
+        }
+    }
+
+    #[test]
+    fn reject_unknown_initcall_level() {
+        let info: ModuleInfo = syn::parse_str(
+            "type: Driver, name: \"test\", license: \"GPL\", initcall: \"invalid\",",
+        )
+        .unwrap();
+        assert!(info.initcall_section().is_err());
+    }
 }

@@ -33,6 +33,11 @@ use syn::parse_macro_input;
 /// The `type` argument should be a type which implements the [`Module`]
 /// trait. Also accepts various forms of kernel metadata.
 ///
+/// The optional `initcall` field selects the initialization level for built-in modules:
+/// `"device"` (the default) or `"late"`. Loadable module initialization is unaffected.
+/// This field may appear anywhere among the metadata fields so driver wrappers can append
+/// their own metadata after the caller's selection.
+///
 /// The `params` field describe module parameters. Each entry has the form
 ///
 /// ```ignore
