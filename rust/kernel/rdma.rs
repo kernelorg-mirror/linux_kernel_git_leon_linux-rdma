@@ -10,6 +10,9 @@ use crate::{
 };
 use core::marker::PhantomData;
 
+#[cfg(CONFIG_INFINIBAND_VIRT_DMA)]
+pub mod software;
+
 mod access;
 pub use access::{
     Access,
