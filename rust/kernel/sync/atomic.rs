@@ -28,6 +28,7 @@ pub(crate) use internal::{AtomicArithmeticOps, AtomicBasicOps, AtomicExchangeOps
 use crate::build_error;
 use internal::AtomicRepr;
 use ordering::OrderingType;
+use pin_init::Zeroable;
 
 /// A memory location which can be safely modified from multiple execution contexts.
 ///
@@ -57,6 +58,10 @@ unsafe impl<T: AtomicType> Send for Atomic<T> {}
 
 // SAFETY: `Atomic<T>` is safe to share among execution contexts because all accesses are atomic.
 unsafe impl<T: AtomicType> Sync for Atomic<T> {}
+
+// SAFETY: `Atomic<T>` has the same bit validity as `T`. Zero is a valid `T` when
+// `T: Zeroable`, and its atomic representation adds no initialization requirements.
+unsafe impl<T: AtomicType + Zeroable> Zeroable for Atomic<T> {}
 
 /// Types that support basic atomic operations.
 ///
