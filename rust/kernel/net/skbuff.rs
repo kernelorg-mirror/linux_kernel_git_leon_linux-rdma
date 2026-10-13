@@ -4,6 +4,9 @@
 //!
 //! C header: [`include/linux/skbuff.h`](srctree/include/linux/skbuff.h)
 
+pub mod completion;
+pub mod packet;
+
 use crate::{
     alloc::{
         AllocError,

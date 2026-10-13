@@ -22,9 +22,39 @@ __rust_helper void rust_helper_skb_test_trim(struct sk_buff *skb, unsigned int l
 }
 #endif
 
+__rust_helper bool rust_helper_pskb_may_pull(struct sk_buff *skb, unsigned int len)
+{
+	return pskb_may_pull(skb, len);
+}
+
+__rust_helper bool rust_helper_skb_dst_force(struct sk_buff *skb)
+{
+	return skb_dst_force(skb);
+}
+
+__rust_helper void rust_helper_skb_drop_receive_dst(struct sk_buff *skb)
+{
+	skb_dst_drop(skb);
+}
+
+__rust_helper unsigned char *rust_helper_skb_network_header(const struct sk_buff *skb)
+{
+	return skb_network_header(skb);
+}
+
+__rust_helper __be16 rust_helper_skb_protocol_field(const struct sk_buff *skb)
+{
+	return skb->protocol;
+}
+
 __rust_helper void rust_helper_kfree_skb(struct sk_buff *skb)
 {
 	kfree_skb(skb);
+}
+
+__rust_helper void rust_helper_skb_queue_head_init(struct sk_buff_head *list)
+{
+	skb_queue_head_init(list);
 }
 
 __rust_helper int rust_helper_skb_linearize(struct sk_buff *skb)
@@ -73,4 +103,14 @@ __rust_helper void rust_helper_skb_reserve(struct sk_buff *skb, int len)
 __rust_helper struct skb_shared_info *rust_helper_skb_shinfo(struct sk_buff *skb)
 {
 	return skb_shinfo(skb);
+}
+
+__rust_helper void rust_helper_skb_reset_network_header(struct sk_buff *skb)
+{
+	skb_reset_network_header(skb);
+}
+
+__rust_helper void rust_helper_skb_orphan(struct sk_buff *skb)
+{
+	skb_orphan(skb);
 }
