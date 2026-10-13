@@ -97,6 +97,9 @@
 #include "serdev.c"
 #include "shm.c"
 #include "signal.c"
+#ifdef CONFIG_NET
+#include "skbuff.c"
+#endif
 #include "slab.c"
 #include "spinlock.c"
 #include "string.c"

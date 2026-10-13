@@ -94,4 +94,15 @@ config RUST_SHARED_VMALLOC_KUNIT_TEST
 
 	  If unsure, say N.
 
+config RUST_SKBUFF_KUNIT_TEST
+	bool "KUnit tests for Rust socket buffers" if !KUNIT_ALL_TESTS
+	depends on NET
+	default KUNIT_ALL_TESTS
+	help
+	  This option enables copy and ownership tests for socket buffers.
+	  These are only for development and testing, not for regular
+	  kernel use cases.
+
+	  If unsure, say N.
+
 endif
