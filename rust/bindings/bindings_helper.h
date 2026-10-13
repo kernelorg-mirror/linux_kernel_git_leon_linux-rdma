@@ -126,6 +126,11 @@
 #include <linux/hmm.h>
 #endif
 
+#if IS_ENABLED(CONFIG_RDMA_RXE)
+#include <rdma/rdma_netlink.h>
+#include <rdma/rdma_user_rxe.h>
+#endif
+
 /*
  * The driver-core Rust code needs to know about some C driver-core private
  * structures.

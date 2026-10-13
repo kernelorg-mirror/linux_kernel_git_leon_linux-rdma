@@ -3,6 +3,7 @@ config RDMA_RXE
 	tristate "Software RDMA over Ethernet (RoCE) driver"
 	depends on INET && PCI && INFINIBAND && 64BIT
 	depends on INFINIBAND_VIRT_DMA
+	depends on RUST
 	select NET_UDP_TUNNEL
 	select CRC32
 	help
@@ -21,7 +22,21 @@ config RDMA_RXE
 	space verbs API, libibverbs. The other layer interfaces
 	with the Linux network stack at layer 3.
 
+	RXE requires Rust support, including a supported architecture and
+	toolchain. Configurations incompatible with RUST, such as RANDSTRUCT,
+	cannot enable this driver. There is no C implementation fallback.
+
 	To configure and work with soft-RoCE driver please use the
 	following wiki page under "configure Soft-RoCE (RXE)" section:
 
 	https://github.com/linux-rdma/rdma-core/blob/master/Documentation/rxe.md
+
+config RDMA_RXE_KUNIT_TEST
+	bool "KUnit tests for RXE Rust policy" if !KUNIT_ALL_TESTS
+	depends on RDMA_RXE && KUNIT=y
+	default KUNIT_ALL_TESTS
+	help
+	  Test RXE management datagram encoding, queue resizing, receive queue
+	  limits and task scheduling without requiring an RDMA device.
+	  They run at boot when RXE is built in, or on loading rdma_rxe when
+	  the driver is built as a module.
