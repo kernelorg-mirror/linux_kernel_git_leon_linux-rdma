@@ -143,6 +143,10 @@ pub type KVBox<T> = Box<T, super::allocator::KVmalloc>;
 // <https://doc.rust-lang.org/stable/std/option/index.html#representation>).
 unsafe impl<T, A: Allocator> ZeroableOption for Box<T, A> {}
 
+// SAFETY: `Pin` preserves the box's layout and null niche. A zeroed option is `None`, which
+// contains no pointee and therefore imposes no pinning obligation.
+unsafe impl<T, A: Allocator> ZeroableOption for Pin<Box<T, A>> {}
+
 // SAFETY: `Box` is `Send` if `T` is `Send` because the `Box` owns a `T`.
 unsafe impl<T, A> Send for Box<T, A>
 where
