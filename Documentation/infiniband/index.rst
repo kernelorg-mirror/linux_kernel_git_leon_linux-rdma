@@ -9,6 +9,7 @@ InfiniBand
 
    core_locking
    ipoib
+   rxe-rust-design
    sysfs
    tag_matching
    ucaps
