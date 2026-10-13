@@ -21,6 +21,8 @@
 #include <linux/seq_buf.h>
 #include <linux/xarray.h>
 
+#include "pci.h"
+
 struct pci_p2pdma {
 	struct gen_pool *pool;
 	bool p2pmem_published;
@@ -491,6 +493,43 @@ static struct pci_dev *find_parent_pci_dev(struct device *dev)
 }
 
 /*
+ * Some devices send peer-to-peer traffic upstream without a standard ACS
+ * capability, such as Zhaoxin Root and Switch Downstream Ports and
+ * multi-function devices that cannot route between their own functions.
+ * Their device-specific ACS quirks say so. Report whether @pdev's quirk
+ * says that @flag is in effect.
+ *
+ * Skip devices on a root bus. They never decide whether two peers connect
+ * directly, and for them the AMD southbridge quirk calls acpi_get_table(),
+ * which may sleep. DMA mapping may call this code where sleeping is not
+ * allowed.
+ */
+static bool pci_acs_p2pdma_quirk(struct pci_dev *pdev, u16 flag)
+{
+	if (pci_is_root_bus(pdev->bus))
+		return false;
+
+	return pci_dev_specific_acs_enabled(pdev, flag) > 0;
+}
+
+/*
+ * Add the Request and Completion Redirect that @pdev's quirk reports to its
+ * ACS Control value. Only ever add them: a quirk that covers every device of
+ * a vendor says "no" for the ones it does not know, and that must not hide
+ * their own ACS controls. What a quirk says about other controls only means
+ * that the control does not apply, so ignore it.
+ */
+static u16 pci_acs_p2pdma_quirk_redirect(struct pci_dev *pdev, u16 ctrl)
+{
+	if (pci_acs_p2pdma_quirk(pdev, PCI_ACS_RR))
+		ctrl |= PCI_ACS_RR;
+	if (pci_acs_p2pdma_quirk(pdev, PCI_ACS_CR))
+		ctrl |= PCI_ACS_CR;
+
+	return ctrl;
+}
+
+/*
  * Check if a PCI bridge has its ACS redirection bits set to redirect P2P
  * TLPs upstream via ACS. Returns 1 if the packets will be redirected
  * upstream, 0 otherwise.
@@ -498,14 +537,13 @@ static struct pci_dev *find_parent_pci_dev(struct device *dev)
 static int pci_bridge_has_acs_redir(struct pci_dev *pdev)
 {
 	int pos;
-	u16 ctrl;
+	u16 ctrl = 0;
 
 	pos = pdev->acs_cap;
-	if (!pos)
-		return 0;
+	if (pos)
+		pci_read_config_word(pdev, pos + PCI_ACS_CTRL, &ctrl);
 
-	pci_read_config_word(pdev, pos + PCI_ACS_CTRL, &ctrl);
-
+	ctrl = pci_acs_p2pdma_quirk_redirect(pdev, ctrl);
 	if (ctrl & (PCI_ACS_RR | PCI_ACS_CR | PCI_ACS_EC))
 		return 1;
 
