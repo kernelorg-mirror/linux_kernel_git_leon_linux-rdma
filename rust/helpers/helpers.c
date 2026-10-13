@@ -77,6 +77,7 @@
 #include "maple_tree.c"
 #include "mm.c"
 #include "mutex.c"
+#include "net/device.c"
 #include "net/genetlink.c"
 #include "net/namespace.c"
 #include "of.c"

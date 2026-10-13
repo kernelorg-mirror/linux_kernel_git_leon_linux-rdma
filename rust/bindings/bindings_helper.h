@@ -101,6 +101,11 @@
 #include <net/netlink.h>
 #include <trace/events/rust_sample.h>
 
+#if IS_ENABLED(CONFIG_NET)
+#include <linux/netdevice.h>
+#include <linux/rtnetlink.h>
+#endif
+
 /*
  * The driver-core Rust code needs to know about some C driver-core private
  * structures.

@@ -199,7 +199,8 @@ struct vlan_dev_priv {
 
 static inline bool is_vlan_dev(const struct net_device *dev)
 {
-	return dev->priv_flags & IFF_802_1Q_VLAN;
+	/* VLAN type is fixed before publication, while other flags may change. */
+	return data_race(dev->priv_flags & IFF_802_1Q_VLAN);
 }
 
 static inline struct vlan_dev_priv *vlan_dev_priv(const struct net_device *dev)

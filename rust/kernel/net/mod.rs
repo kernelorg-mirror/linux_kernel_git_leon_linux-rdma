@@ -2,10 +2,23 @@
 
 //! Networking.
 
+mod device;
+pub use device::{
+    Device,
+    DeviceLocation,
+    DeviceName,
+    DeviceRef,
+    LinkInfo,
+    RtnlGuard, //
+};
+
 #[cfg(CONFIG_RUST_PHYLIB_ABSTRACTIONS)]
 pub mod phy;
 
 pub mod netlink;
+
+pub mod notifier;
+
 pub mod skbuff;
 
 pub mod namespace;

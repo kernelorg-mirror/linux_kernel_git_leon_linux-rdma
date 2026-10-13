@@ -8,6 +8,10 @@
 #include <linux/module.h>
 
 #ifdef CONFIG_NET
+__rust_helper bool rust_helper_net_namespace_is_published(const struct net *net)
+{
+	return ns_tree_lookup_rcu(net->net_cookie, CLONE_NEWNET) == &net->ns;
+}
 
 __rust_helper void rust_helper_net_namespace_init_directory(atomic_t *state,
 							  void (*init)(void))
