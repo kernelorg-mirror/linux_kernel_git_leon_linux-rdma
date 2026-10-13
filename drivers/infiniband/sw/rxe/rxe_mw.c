@@ -116,21 +116,13 @@ static int rxe_check_bind_mw(struct rxe_qp *qp, struct rxe_send_wqe *wqe,
 		return -EINVAL;
 	}
 
-	/* C10-75 */
-	if (access & IB_ZERO_BASED) {
-		if (unlikely(wqe->wr.wr.mw.length > mr->ibmr.length)) {
-			rxe_dbg_mw(mw,
-				"attempt to bind a ZB MW outside of the MR\n");
-			return -EINVAL;
-		}
-	} else {
-		if (unlikely((wqe->wr.wr.mw.addr < mr->ibmr.iova) ||
-			     ((wqe->wr.wr.mw.addr + wqe->wr.wr.mw.length) >
-			      (mr->ibmr.iova + mr->ibmr.length)))) {
-			rxe_dbg_mw(mw,
-				"attempt to bind a VA MW outside of the MR\n");
-			return -EINVAL;
-		}
+	/* The binding address always names bytes within the MR, even when
+	 * remote accesses use offsets relative to the window.
+	 */
+	if (unlikely(mr_check_range(mr, wqe->wr.wr.mw.addr,
+				    wqe->wr.wr.mw.length))) {
+		rxe_dbg_mw(mw, "attempt to bind an MW outside of the MR\n");
+		return -EINVAL;
 	}
 
 	return 0;
