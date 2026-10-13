@@ -104,6 +104,7 @@
 #if IS_ENABLED(CONFIG_NET)
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
+#include <net/sock.h>
 #endif
 
 /*

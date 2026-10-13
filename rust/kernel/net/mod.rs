@@ -22,3 +22,4 @@ pub mod notifier;
 pub mod skbuff;
 
 pub mod namespace;
+pub mod socket;
