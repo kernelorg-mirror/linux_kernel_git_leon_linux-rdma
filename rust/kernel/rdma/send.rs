@@ -3,9 +3,14 @@
 //! Borrowed kernel send requests, selected extensions and bounded inline copies.
 
 use super::{
+    completion::{
+        CompletionOrigin,
+        PostingOutcome, //
+    },
     AccessFlags,
     AddressHandleOperations,
     AddressHandles,
+    CompletionId,
     MemoryRegion,
     MemoryRegionOperations,
     MemoryRegions,
@@ -30,7 +35,10 @@ use bindings::{
     ib_wr_opcode_IB_WR_SEND_WITH_IMM as SEND_IMM,
     ib_wr_opcode_IB_WR_SEND_WITH_INV as SEND_INV, //
 };
-use core::marker::PhantomData;
+use core::{
+    cell::Cell,
+    marker::PhantomData, //
+};
 
 /// Copied remote address and access key for an RDMA request.
 pub struct RemoteSend {
@@ -90,6 +98,8 @@ pub struct RegisterSend<'a, T> {
 /// readable CPU memory for their declared lengths and remain unchanged throughout `'a`.
 pub struct SendRequest<'a, T> {
     raw: *const bindings::ib_send_wr,
+    completion: CompletionId,
+    accepted: &'a Cell<bool>,
     kind: QueuePairType,
     _borrow: PhantomData<&'a T>,
 }
@@ -107,6 +117,18 @@ impl<T> SendRequest<'_, T> {
         // SAFETY: The caller initialized either identifier member. The native boundary
         // materializes unused bytes when a pointer is narrower than the opaque identifier.
         unsafe { bindings::ib_send_wr_id(self.raw) }
+    }
+
+    /// Accepts this request and returns its single-use native completion capability.
+    ///
+    /// Acceptance is irreversible: even if the provider later returns an error, the native
+    /// adapter reports this request as posted. Finish fallible preparation before calling.
+    /// This consumes the request and ends its metadata borrows before a completion can release
+    /// the native storage. Clone the returned capability when multiple owners need to retain it.
+    #[inline]
+    pub fn completion_id(self) -> CompletionId {
+        self.accepted.set(true);
+        self.completion
     }
 
     /// Returns the opcode before provider-specific validation.
@@ -282,15 +304,20 @@ impl<T: MemoryRegionOperations> SendRequest<'_, T> {
     }
 }
 
-/// A stable kernel send chain and exclusive first-failure output.
+/// A kernel send chain and exclusive first-failure output.
 ///
 /// # Invariants
 ///
-/// Each node in the acyclic chain satisfies `SendRequest`'s invariant for `'a`. The transport
-/// matches the originating QP. `bad` is writable and does not alias requests, descriptors or
-/// inline sources; no other writer accesses it during the cursor's lifetime.
+/// Each unaccepted node in the acyclic chain satisfies `SendRequest`'s invariant. Accepted
+/// nodes may be released after their completion capability is returned or their visit ends.
+/// The unaccepted suffix remains live for `'a`. The transport matches the originating QP.
+/// `bad` is writable and does not alias requests, descriptors or inline sources; no other
+/// writer accesses it during the cursor's lifetime.
 pub struct SendRequests<'a, T> {
     next: *const bindings::ib_send_wr,
+    origin: Option<CompletionOrigin>,
+    outcome: Option<&'a PostingOutcome>,
+    reserved: Option<CompletionId>,
     bad: *mut *const bindings::ib_send_wr,
     kind: QueuePairType,
     _borrow: PhantomData<&'a mut T>,
@@ -314,43 +341,100 @@ impl<'a, T> SendRequests<'a, T> {
         // SAFETY: The caller grants writable, nonaliasing output. A provider may reject
         // the entire chain before visiting it, so establish that failure result now.
         unsafe { bad.write(first) };
-        // INVARIANT: The caller retains the chain and its selected resources, supplies its
-        // actual transport and grants exclusive access to the failure output.
+        // INVARIANT: The caller retains unaccepted nodes and their selected resources,
+        // supplies the actual transport and grants exclusive access to the failure output.
         Self {
             next: first,
+            origin: None,
+            outcome: None,
+            reserved: None,
             bad,
             kind,
             _borrow: PhantomData,
         }
     }
 
+    pub(super) fn track(
+        mut self,
+        origin: Option<CompletionOrigin>,
+        outcome: &'a PostingOutcome,
+    ) -> Self {
+        self.origin = origin;
+        self.outcome = Some(outcome);
+        self
+    }
+
+    /// Supplies the private drain adapter's preallocated capability for its sole request.
+    pub(super) fn with_reserved(mut self, completion: CompletionId) -> Self {
+        self.reserved = Some(completion);
+        self
+    }
+
+    fn finish(self, result: Result) -> Result {
+        if result.is_err() {
+            // SAFETY: The cursor owns writable, nonaliasing failure output.
+            unsafe { self.bad.write(self.next) };
+        }
+        if let Some(outcome) = self.outcome {
+            outcome.set(Some(result));
+        }
+        result
+    }
+
     /// Visits requests in order, preserving the successful prefix on failure.
     ///
-    /// Failure records the first rejected request. The output is unspecified on success.
+    /// Capturing a completion identifier accepts its request even when the closure later
+    /// fails. Failure then selects the next unaccepted request, or succeeds if the chain
+    /// ended. The output is unspecified on success.
+    ///
+    /// Traversal can acquire a regular kernel spinlock and must not run under a raw spinlock.
+    /// On PREEMPT_RT it requires task or threaded interrupt context with hard interrupts enabled.
     pub fn try_for_each(mut self, mut post: impl FnMut(SendRequest<'_, T>) -> Result) -> Result {
         while !self.next.is_null() {
-            // INVARIANT: The cursor retains this node, selected extensions and resources.
-            if let Err(error) = post(SendRequest {
+            // SAFETY: This unaccepted node is retained. Cache its link before the provider
+            // can publish a completion that releases or recycles the accepted node.
+            let next = unsafe { (*self.next).next };
+            // SAFETY: The caller initialized the selected identifier union member and retains
+            // the node. The native boundary materializes any unused pointer-width bytes.
+            let value = unsafe { bindings::ib_send_wr_id(self.next) };
+            let completion = match self.reserved.take() {
+                Some(completion) => completion,
+                None => match CompletionId::capture(value, self.origin.as_ref()) {
+                    Ok(completion) => completion,
+                    Err(error) => return self.finish(Err(error)),
+                },
+            };
+            let accepted = Cell::new(false);
+            // INVARIANT: The cursor retains the unaccepted node and selected resources.
+            // Acceptance consumes this borrow before its completion can release storage.
+            let result = post(SendRequest {
                 raw: self.next,
+                completion,
+                accepted: &accepted,
                 kind: self.kind,
                 _borrow: PhantomData,
-            }) {
-                // SAFETY: The caller grants writable, nonaliasing failure output.
-                unsafe { self.bad.write(self.next) };
-                return Err(error);
+            });
+            if result.is_ok() || accepted.get() {
+                self.next = next;
             }
-            // SAFETY: The cursor retains the initialized, unchanged next link.
-            self.next = unsafe { (*self.next).next };
+            if let Err(error) = result {
+                // A token already handed to the provider cannot be revoked by reporting its
+                // request as failed. Fail the next unaccepted request, or finish the chain.
+                let result = if accepted.get() && self.next.is_null() {
+                    Ok(())
+                } else {
+                    Err(error)
+                };
+                return self.finish(result);
+            }
         }
-        Ok(())
+        self.finish(Ok(()))
     }
 
     /// Rejects posting before visiting requests and records the first request, possibly null.
     #[inline]
     pub fn reject(self, error: Error) -> Result {
-        // SAFETY: The cursor owns writable, nonaliasing failure output even for an empty chain.
-        unsafe { self.bad.write(self.next) };
-        Err(error)
+        self.finish(Err(error))
     }
 }
 
@@ -362,6 +446,99 @@ mod tests {
         mem::MaybeUninit,
         ptr, //
     };
+
+    #[test]
+    fn accepted_request_reuse_preserves_the_unaccepted_suffix() -> Result {
+        for fail_after_accept in [false, true] {
+            let last = bindings::ib_send_wr::default();
+            let mut first = bindings::ib_send_wr {
+                next: (&raw const last).cast_mut(),
+                ..Default::default()
+            };
+            let first_raw = &raw mut first;
+            let mut bad = ptr::null();
+            // SAFETY: Both nodes are initialized and retained until acceptance. Reusing the
+            // first node after consuming its request models a completion returning its storage.
+            let requests = unsafe {
+                SendRequests::<()>::from_raw(first_raw, &mut bad, QueuePairType::ReliableConnected)
+            };
+            let mut visited = 0;
+            let result = requests.try_for_each(|request| {
+                visited += 1;
+                let _completion = request.completion_id();
+                if visited == 1 {
+                    // SAFETY: Acceptance ended all request borrows, and the cursor must use
+                    // its previously captured link instead of accessing this recycled node.
+                    unsafe { (&raw mut (*first_raw).next).write(ptr::null_mut()) };
+                    if fail_after_accept {
+                        return Err(EINVAL);
+                    }
+                }
+                Ok(())
+            });
+            if fail_after_accept {
+                assert_eq!(result, Err(EINVAL));
+                assert_eq!(bad, &raw const last);
+                assert_eq!(visited, 1);
+            } else {
+                result?;
+                assert_eq!(visited, 2);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn completion_acceptance_preserves_the_posted_prefix_after_error() -> Result {
+        let last = bindings::ib_send_wr::default();
+        let first = bindings::ib_send_wr {
+            next: (&raw const last).cast_mut(),
+            ..Default::default()
+        };
+        let mut bad = core::ptr::null();
+        let outcome = PostingOutcome::new(None);
+        // SAFETY: Both initialized descriptor-free requests and the exclusive output remain
+        // live during traversal. The test only captures their initialized identifiers.
+        let requests = unsafe {
+            SendRequests::<()>::from_raw(&first, &mut bad, QueuePairType::ReliableConnected)
+        }
+        .track(None, &outcome);
+        let mut visited = 0;
+        assert_eq!(
+            requests.try_for_each(|request| {
+                visited += 1;
+                let _accepted = request.completion_id();
+                Err(EINVAL)
+            }),
+            Err(EINVAL)
+        );
+        assert_eq!(visited, 1);
+        assert_eq!(bad, &raw const last);
+        assert_eq!(outcome.get(), Some(Err(EINVAL)));
+        Ok(())
+    }
+
+    #[test]
+    fn last_completion_acceptance_cannot_be_reported_as_failure() -> Result {
+        let request = bindings::ib_send_wr::default();
+        let mut bad = core::ptr::null();
+        let outcome = PostingOutcome::new(None);
+        // SAFETY: The initialized descriptor-free request and exclusive output remain live.
+        let requests = unsafe {
+            SendRequests::<()>::from_raw(&request, &mut bad, QueuePairType::ReliableConnected)
+        }
+        .track(None, &outcome);
+        assert_eq!(
+            requests.try_for_each(|request| {
+                let _accepted = request.completion_id();
+                Err(EINVAL)
+            }),
+            Ok(())
+        );
+        // The adapter uses this outcome even if the provider returns a later error.
+        assert_eq!(outcome.get().unwrap_or(Err(EIO)), Ok(()));
+        Ok(())
+    }
 
     #[test]
     fn callback_identifier_preserves_pointer_bytes() -> Result {

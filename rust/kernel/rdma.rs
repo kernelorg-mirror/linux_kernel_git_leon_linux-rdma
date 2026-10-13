@@ -67,6 +67,7 @@ mod completion;
 pub use completion::{
     Completion,
     CompletionData,
+    CompletionId,
     CompletionOutput,
     QueuePairIdentity, //
 };
@@ -117,6 +118,12 @@ pub use modification::DeviceModification;
 
 mod netdev;
 pub use netdev::EthernetLink;
+
+mod multicast;
+pub use multicast::{
+    MulticastGroups,
+    MulticastOperations, //
+};
 
 mod mw;
 pub use mw::{
@@ -177,6 +184,18 @@ pub use qp::{
     QueuePairState,
     QueuePairType,
     WorkQueueCapacity, //
+};
+
+mod qp_object;
+pub use qp_object::{
+    QueuePair,
+    QueuePairCreation,
+    QueuePairEvent,
+    QueuePairOperations,
+    QueuePairParents,
+    QueuePairQuery,
+    QueuePairRef,
+    QueuePairs, //
 };
 
 #[cfg(all(CONFIG_INFINIBAND_ON_DEMAND_PAGING, CONFIG_INFINIBAND_VIRT_DMA))]

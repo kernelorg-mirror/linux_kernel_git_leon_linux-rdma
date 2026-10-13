@@ -3,10 +3,25 @@
 #if IS_ENABLED(CONFIG_INFINIBAND)
 #include <linux/atomic.h>
 #include <linux/irqflags.h>
+#include <linux/spinlock.h>
 #include <rdma/ib_addr.h>
 #include <rdma/ib_pmem.h>
 #include <rdma/ib_umem.h>
 #include <rdma/uverbs_ioctl.h>
+
+#ifdef CONFIG_RUST_KUNIT_TESTS
+__rust_helper void rust_helper_rust_rdma_test_with_raw_lock(void (*callback)(void *),
+							    void *context)
+{
+	raw_spinlock_t lock;
+	unsigned long flags;
+
+	raw_spin_lock_init(&lock);
+	raw_spin_lock_irqsave(&lock, flags);
+	callback(context);
+	raw_spin_unlock_irqrestore(&lock, flags);
+}
+#endif
 
 __rust_helper bool rust_helper_ib_pmem_range(u64 start, size_t size)
 {
@@ -36,6 +51,11 @@ __rust_helper enum ib_port_state
 rust_helper_ib_get_curr_port_state(struct net_device *ndev)
 {
 	return ib_get_curr_port_state(ndev);
+}
+
+__rust_helper u16 rust_helper_rdma_get_udp_sport(u32 fl, u32 lqpn, u32 rqpn)
+{
+	return rdma_get_udp_sport(fl, lqpn, rqpn);
 }
 
 #if !IS_ENABLED(CONFIG_INFINIBAND_USER_ACCESS)

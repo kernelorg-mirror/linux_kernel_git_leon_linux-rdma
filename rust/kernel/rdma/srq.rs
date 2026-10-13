@@ -3,7 +3,13 @@
 //! Owned provider data and callbacks for basic shared receive queues.
 
 use super::{
+    completion::{
+        CompletionOrigin,
+        PostingOutcome,
+        SharedReceiveIdentity, //
+    },
     queued_event::Events,
+    CompletionId,
     ContextData,
     Operations,
     ProtectionDomainOperations,
@@ -23,6 +29,7 @@ use crate::{
     }, //
 };
 use core::{
+    cell::Cell,
     marker::PhantomData,
     ptr, //
 };
@@ -36,6 +43,8 @@ use core::{
 /// [`ScatterGather::from_raw`]; described addresses confer no permission to access memory.
 pub struct ReceiveRequest<'a> {
     raw: *const bindings::ib_recv_wr,
+    completion: CompletionId,
+    accepted: &'a Cell<bool>,
     _borrow: PhantomData<&'a bindings::ib_recv_wr>,
 }
 
@@ -46,6 +55,18 @@ impl ReceiveRequest<'_> {
         // SAFETY: The caller initialized either identifier member. The native boundary
         // materializes unused bytes when a pointer is narrower than the opaque identifier.
         unsafe { bindings::ib_recv_wr_id(self.raw) }
+    }
+
+    /// Accepts this request and returns its single-use native completion capability.
+    ///
+    /// Acceptance is irreversible: even if the provider later returns an error, the native
+    /// adapter reports this request as posted. Finish fallible preparation before calling.
+    /// This consumes the request and ends its metadata borrows before a completion can release
+    /// the native storage. Clone the returned capability when multiple owners need to retain it.
+    #[inline]
+    pub fn completion_id(self) -> CompletionId {
+        self.accepted.set(true);
+        self.completion
     }
 
     /// Returns the supplied descriptor count before validation.
@@ -75,11 +96,16 @@ impl ReceiveRequest<'_> {
 ///
 /// # Invariants
 ///
-/// The acyclic chain and descriptor arrays remain live and unchanged for `'a`. Each node
-/// satisfies [`ReceiveRequest`]'s invariant. `bad` is writable on failure and does not alias
-/// any request or descriptor. No other writer accesses `bad` while this cursor exists.
+/// Each unaccepted node in the acyclic chain and its descriptor array satisfy
+/// [`ReceiveRequest`]'s invariant. Accepted nodes may be released after their completion
+/// capability is returned or their visit ends. The unaccepted suffix remains live for `'a`.
+/// `bad` is writable on failure and does not alias any request or descriptor. No other writer
+/// accesses `bad` while this cursor exists.
 pub struct ReceiveRequests<'a> {
     next: *const bindings::ib_recv_wr,
+    origin: Option<CompletionOrigin>,
+    outcome: Option<&'a PostingOutcome>,
+    reserved: Option<CompletionId>,
     bad: *mut *const bindings::ib_recv_wr,
     _borrow: PhantomData<&'a mut *const bindings::ib_recv_wr>,
 }
@@ -89,6 +115,92 @@ pub struct ReceiveRequests<'a> {
 mod tests {
     use super::*;
     use core::mem::MaybeUninit;
+
+    #[test]
+    fn accepted_request_reuse_preserves_the_unaccepted_suffix() -> Result {
+        for fail_after_accept in [false, true] {
+            let last = bindings::ib_recv_wr::default();
+            let mut first = bindings::ib_recv_wr {
+                next: (&raw const last).cast_mut(),
+                ..Default::default()
+            };
+            let first_raw = &raw mut first;
+            let mut bad = ptr::null();
+            // SAFETY: Both nodes are initialized and retained until acceptance. Reusing the
+            // first node after consuming its request models a completion returning its storage.
+            let requests = unsafe { ReceiveRequests::from_raw(first_raw, &mut bad) };
+            let mut visited = 0;
+            let result = requests.try_for_each(|request| {
+                visited += 1;
+                let _completion = request.completion_id();
+                if visited == 1 {
+                    // SAFETY: Acceptance ended all request borrows, and the cursor must use
+                    // its previously captured link instead of accessing this recycled node.
+                    unsafe { (&raw mut (*first_raw).next).write(ptr::null_mut()) };
+                    if fail_after_accept {
+                        return Err(EINVAL);
+                    }
+                }
+                Ok(())
+            });
+            if fail_after_accept {
+                assert_eq!(result, Err(EINVAL));
+                assert_eq!(bad, &raw const last);
+                assert_eq!(visited, 1);
+            } else {
+                result?;
+                assert_eq!(visited, 2);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn completion_acceptance_preserves_the_posted_prefix_after_error() -> Result {
+        let last = bindings::ib_recv_wr::default();
+        let first = bindings::ib_recv_wr {
+            next: (&raw const last).cast_mut(),
+            ..Default::default()
+        };
+        let mut bad = core::ptr::null();
+        let outcome = PostingOutcome::new(None);
+        // SAFETY: Both initialized descriptor-free requests and the exclusive output remain
+        // live during traversal. The test only captures their initialized identifiers.
+        let requests = unsafe { ReceiveRequests::from_raw(&first, &mut bad) }.track(None, &outcome);
+        let mut visited = 0;
+        assert_eq!(
+            requests.try_for_each(|request| {
+                visited += 1;
+                let _accepted = request.completion_id();
+                Err(EINVAL)
+            }),
+            Err(EINVAL)
+        );
+        assert_eq!(visited, 1);
+        assert_eq!(bad, &raw const last);
+        assert_eq!(outcome.get(), Some(Err(EINVAL)));
+        Ok(())
+    }
+
+    #[test]
+    fn last_completion_acceptance_cannot_be_reported_as_failure() -> Result {
+        let request = bindings::ib_recv_wr::default();
+        let mut bad = core::ptr::null();
+        let outcome = PostingOutcome::new(None);
+        // SAFETY: The initialized descriptor-free request and exclusive output remain live.
+        let requests =
+            unsafe { ReceiveRequests::from_raw(&request, &mut bad) }.track(None, &outcome);
+        assert_eq!(
+            requests.try_for_each(|request| {
+                let _accepted = request.completion_id();
+                Err(EINVAL)
+            }),
+            Ok(())
+        );
+        // The adapter uses this outcome even if the provider returns a later error.
+        assert_eq!(outcome.get().unwrap_or(Err(EIO)), Ok(()));
+        Ok(())
+    }
 
     #[test]
     fn early_rejection_initializes_failure_output() -> Result {
@@ -121,40 +233,97 @@ impl<'a> ReceiveRequests<'a> {
         // SAFETY: The caller grants writable, nonaliasing output. A provider may reject
         // the entire chain before visiting it, so establish that failure result now.
         unsafe { bad.write(first) };
-        // INVARIANT: The caller retains the stable chain and grants the output exclusively.
+        // INVARIANT: The caller retains unaccepted nodes and grants the output exclusively.
         Self {
             next: first,
+            origin: None,
+            outcome: None,
+            reserved: None,
             bad,
             _borrow: PhantomData,
         }
     }
 
+    pub(super) fn track(
+        mut self,
+        origin: Option<CompletionOrigin>,
+        outcome: &'a PostingOutcome,
+    ) -> Self {
+        self.origin = origin;
+        self.outcome = Some(outcome);
+        self
+    }
+
+    /// Supplies the private drain adapter's preallocated capability for its sole request.
+    pub(super) fn with_reserved(mut self, completion: CompletionId) -> Self {
+        self.reserved = Some(completion);
+        self
+    }
+
+    fn finish(self, result: Result) -> Result {
+        if result.is_err() {
+            // SAFETY: The cursor owns writable, nonaliasing failure output.
+            unsafe { self.bad.write(self.next) };
+        }
+        if let Some(outcome) = self.outcome {
+            outcome.set(Some(result));
+        }
+        result
+    }
+
     /// Visits requests in order and records the first request rejected by the provider.
     ///
-    /// A successful prefix remains posted. The failure output is unspecified on success.
+    /// A successful prefix remains posted. Capturing a completion identifier accepts its
+    /// request even when the closure subsequently fails; failure then selects the next
+    /// unaccepted request, or succeeds if the chain ended. The output is unspecified on success.
+    ///
+    /// Traversal can acquire a regular kernel spinlock and must not run under a raw spinlock.
+    /// On PREEMPT_RT it requires task or threaded interrupt context with hard interrupts enabled.
     pub fn try_for_each(mut self, mut post: impl FnMut(ReceiveRequest<'_>) -> Result) -> Result {
         while !self.next.is_null() {
-            // INVARIANT: The cursor's contract retains this request and its descriptor array.
-            if let Err(error) = post(ReceiveRequest {
+            // SAFETY: This unaccepted node is retained. Cache its link before the provider
+            // can publish a completion that releases or recycles the accepted node.
+            let next = unsafe { (*self.next).next };
+            // SAFETY: The caller initialized the selected identifier union member and retains
+            // the node. The native boundary materializes any unused pointer-width bytes.
+            let value = unsafe { bindings::ib_recv_wr_id(self.next) };
+            let completion = match self.reserved.take() {
+                Some(completion) => completion,
+                None => match CompletionId::capture(value, self.origin.as_ref()) {
+                    Ok(completion) => completion,
+                    Err(error) => return self.finish(Err(error)),
+                },
+            };
+            let accepted = Cell::new(false);
+            // INVARIANT: The cursor retains the unaccepted node and selected resources.
+            // Acceptance consumes this borrow before its completion can release storage.
+            let result = post(ReceiveRequest {
                 raw: self.next,
+                completion,
+                accepted: &accepted,
                 _borrow: PhantomData,
-            }) {
-                // SAFETY: The caller grants writable, nonaliasing failure output.
-                unsafe { self.bad.write(self.next) };
-                return Err(error);
+            });
+            if result.is_ok() || accepted.get() {
+                self.next = next;
             }
-            // SAFETY: The cursor retains the initialized, unchanged next link.
-            self.next = unsafe { (*self.next).next };
+            if let Err(error) = result {
+                // A token already handed to the provider cannot be revoked by reporting its
+                // request as failed. Fail the next unaccepted request, or finish the chain.
+                let result = if accepted.get() && self.next.is_null() {
+                    Ok(())
+                } else {
+                    Err(error)
+                };
+                return self.finish(result);
+            }
         }
-        Ok(())
+        self.finish(Ok(()))
     }
 
     /// Rejects posting before visiting requests and records the first request, possibly null.
     #[inline]
     pub fn reject(self, error: Error) -> Result {
-        // SAFETY: The cursor owns writable, nonaliasing failure output even for an empty chain.
-        unsafe { self.bad.write(self.next) };
-        Err(error)
+        self.finish(Err(error))
     }
 }
 
@@ -305,6 +474,7 @@ pub trait BasicSharedReceiveOperations: ProtectionDomainOperations + UserContext
 struct OwnedQueue {
     core: bindings::ib_srq,
     private_data: *mut c_void,
+    identity: Option<SharedReceiveIdentity>,
     events: Arc<Events>,
 }
 
@@ -349,6 +519,18 @@ impl<T: BasicSharedReceiveOperations> BasicSharedReceiveQueues<T> {
         unsafe { T::SharedReceive::borrow((*srq.cast::<OwnedQueue>()).private_data) }
     }
 
+    /// Clones the native completion provenance of a retained initialized SRQ.
+    ///
+    /// # Safety
+    ///
+    /// The caller must retain this adapter's initialized SRQ and exclude release.
+    pub(super) unsafe fn completion_identity(
+        srq: *mut bindings::ib_srq,
+    ) -> Option<SharedReceiveIdentity> {
+        // SAFETY: Initialization publishes this immutable identity until final release.
+        unsafe { (*srq.cast::<OwnedQueue>()).identity.clone() }
+    }
+
     /// # Safety
     ///
     /// The core must provide unpublished storage of the installed size, retain this adapter's
@@ -369,6 +551,14 @@ impl<T: BasicSharedReceiveOperations> BasicSharedReceiveQueues<T> {
             let data = match ContextData::from_raw(data) {
                 Ok(data) => data,
                 Err(error) => return error.to_errno(),
+            };
+            let identity = if data.is_none() {
+                match SharedReceiveIdentity::new() {
+                    Ok(identity) => Some(identity),
+                    Err(error) => return error.to_errno(),
+                }
+            } else {
+                None
             };
             let events = match Events::new(
                 bindings::ib_event {
@@ -403,6 +593,7 @@ impl<T: BasicSharedReceiveOperations> BasicSharedReceiveQueues<T> {
                     (*attributes).attr.max_sge = attr.max_sge;
                     (*attributes).attr.srq_limit = attr.limit;
                     (*srq.cast::<OwnedQueue>()).private_data = owner.into_foreign();
+                    (&raw mut (*srq.cast::<OwnedQueue>()).identity).write(identity);
                     (&raw mut (*srq.cast::<OwnedQueue>()).events).write(events);
                     0
                 }
@@ -487,18 +678,25 @@ impl<T: BasicSharedReceiveOperations> BasicSharedReceiveQueues<T> {
 
     /// # Safety
     ///
-    /// The posting caller retains the SRQ and immutable request chain, initializes
-    /// identifiers and descriptor arrays, and must grant writable first-failure output.
+    /// The posting caller retains the SRQ and each unaccepted request with its initialized
+    /// identifier and descriptor array, and grants writable first-failure output. Accepted
+    /// nodes may be released by completion processing.
     unsafe extern "C" fn post(
         srq: *mut bindings::ib_srq,
         request: *const bindings::ib_recv_wr,
         bad: *mut *const bindings::ib_recv_wr,
     ) -> c_int {
-        // SAFETY: The posting caller retains the SRQ and immutable request chain, initializes
+        // SAFETY: The posting caller retains the SRQ and unaccepted requests with initialized
         // identifiers and descriptor arrays, and grants writable first-failure output.
         unsafe {
-            Operations::<T>::data((*srq).device)
-                .post_shared_receive(Self::data(srq), ReceiveRequests::from_raw(request, bad))
+            let outcome = PostingOutcome::new(None);
+            let origin = Self::completion_identity(srq).map(CompletionOrigin::SharedReceive);
+            let requests = ReceiveRequests::from_raw(request, bad).track(origin, &outcome);
+            let result =
+                Operations::<T>::data((*srq).device).post_shared_receive(Self::data(srq), requests);
+            outcome
+                .get()
+                .unwrap_or(result)
                 .map_or_else(|error| error.to_errno(), |()| 0)
         }
     }
@@ -525,6 +723,7 @@ impl<T: BasicSharedReceiveOperations> BasicSharedReceiveQueues<T> {
                 .release_shared_receive(owner, UserData::from_raw(data))
             {
                 Ok(()) => {
+                    ptr::drop_in_place(&raw mut (*srq.cast::<OwnedQueue>()).identity);
                     ptr::drop_in_place(&raw mut (*srq.cast::<OwnedQueue>()).events);
                     0
                 }
