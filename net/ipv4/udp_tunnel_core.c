@@ -68,8 +68,7 @@ static bool sk_saddr_any(struct sock *sk)
 #endif
 }
 
-void setup_udp_tunnel_sock(struct net *net, struct sock *sk,
-			   struct udp_tunnel_sock_cfg *cfg)
+void udp_tunnel_sock_configure(struct sock *sk, struct udp_tunnel_sock_cfg *cfg)
 {
 	/* Disable multicast loopback */
 	inet_clear_bit(MC_LOOP, sk);
@@ -90,6 +89,13 @@ void setup_udp_tunnel_sock(struct net *net, struct sock *sk,
 	udp_tunnel_encap_enable(sk);
 
 	udp_tunnel_update_gro_rcv(sk, true);
+}
+EXPORT_SYMBOL_GPL(udp_tunnel_sock_configure);
+
+void setup_udp_tunnel_sock(struct net *net, struct sock *sk,
+			   struct udp_tunnel_sock_cfg *cfg)
+{
+	udp_tunnel_sock_configure(sk, cfg);
 
 	if (!sk->sk_dport && !sk->sk_bound_dev_if && sk_saddr_any(sk) &&
 	    sk->sk_kern_sock)

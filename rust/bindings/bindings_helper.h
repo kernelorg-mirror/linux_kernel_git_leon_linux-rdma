@@ -107,6 +107,10 @@
 #include <net/sock.h>
 #endif
 
+#if IS_ENABLED(CONFIG_NET_UDP_TUNNEL)
+#include <net/udp_tunnel.h>
+#endif
+
 /*
  * The driver-core Rust code needs to know about some C driver-core private
  * structures.

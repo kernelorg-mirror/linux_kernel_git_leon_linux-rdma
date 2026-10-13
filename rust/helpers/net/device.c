@@ -25,6 +25,21 @@ __rust_helper void rust_helper_dev_hold(struct net_device *dev)
 	dev_hold(dev);
 }
 
+__rust_helper struct net_device *
+rust_helper_vlan_dev_real_dev(const struct net_device *dev)
+{
+#if IS_ENABLED(CONFIG_VLAN_8021Q)
+	struct net_device *real = vlan_dev_priv(dev)->real_dev;
+
+	/* VLAN classification stays fixed after publication. */
+	while (is_vlan_dev(real))
+		real = vlan_dev_priv(real)->real_dev;
+	return real;
+#else
+	return NULL;
+#endif
+}
+
 __rust_helper struct net *rust_helper_dev_net(const struct net_device *dev)
 {
 	return dev_net(dev);

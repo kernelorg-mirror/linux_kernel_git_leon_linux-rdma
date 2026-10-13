@@ -23,3 +23,6 @@ pub mod skbuff;
 
 pub mod namespace;
 pub mod socket;
+
+#[cfg(CONFIG_NET_UDP_TUNNEL)]
+pub mod udp_tunnel;

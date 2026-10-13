@@ -93,6 +93,13 @@ struct udp_tunnel_sock_cfg {
 	udp_tunnel_gro_complete_t gro_complete;
 };
 
+/* Configure receive state without publishing the socket for wildcard GRO
+ * lookup. Call before binding to keep receive-state initialization private,
+ * then register wildcard GRO lookup after a successful bind if applicable.
+ */
+void udp_tunnel_sock_configure(struct sock *sk,
+			       struct udp_tunnel_sock_cfg *sock_cfg);
+
 /* Setup the given (UDP) sock to receive UDP encapsulated packets */
 void setup_udp_tunnel_sock(struct net *net, struct sock *sk,
 			   struct udp_tunnel_sock_cfg *sock_cfg);

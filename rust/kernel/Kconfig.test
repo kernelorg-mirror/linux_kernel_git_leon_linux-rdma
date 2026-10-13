@@ -105,6 +105,17 @@ config RUST_NET_NAMESPACE_KUNIT_TEST
 
 	  If unsure, say N.
 
+config RUST_UDP_TUNNEL_KUNIT_TEST
+	bool "KUnit tests for Rust UDP tunnel ownership" if !KUNIT_ALL_TESTS
+	depends on NET_UDP_TUNNEL=y
+	default KUNIT_ALL_TESTS
+	help
+	  This option tests shared tunnel users, closing ports with outstanding
+	  protocol references, and replacement of tunnel registrations while
+	  old leases remain. These tests are intended for development.
+
+	  If unsure, say N.
+
 config RUST_SKBUFF_KUNIT_TEST
 	bool "KUnit tests for Rust socket buffers" if !KUNIT_ALL_TESTS
 	depends on NET
