@@ -410,6 +410,21 @@ impl PartialEq for Kuid {
 
 impl Eq for Kuid {}
 
+/// Provides a scheduling point when the current task needs to yield.
+///
+/// Returns whether the scheduler ran; preemptible configurations may already have scheduled
+/// without needing this call.
+///
+/// # Safety
+///
+/// The caller must be in a context that permits sleeping, outside any RCU read-side critical
+/// section. Even when no rescheduling occurs, this may report an RCU quiescent state.
+#[inline]
+pub unsafe fn cond_resched() -> bool {
+    // SAFETY: The caller guarantees a sleepable context without an active RCU read section.
+    unsafe { crate::bindings::cond_resched() != 0 }
+}
+
 /// Annotation for functions that can sleep.
 ///
 /// Equivalent to the C side [`might_sleep()`], this function serves as

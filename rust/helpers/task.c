@@ -3,6 +3,11 @@
 #include <linux/kernel.h>
 #include <linux/sched/task.h>
 
+__rust_helper int rust_helper_cond_resched(void)
+{
+	return cond_resched();
+}
+
 __rust_helper void rust_helper_might_resched(void)
 {
 	might_resched();
