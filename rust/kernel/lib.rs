@@ -61,6 +61,8 @@ pub mod cpu;
 #[cfg(CONFIG_CPU_FREQ)]
 pub mod cpufreq;
 pub mod cpumask;
+#[cfg(CONFIG_CRC32)]
+pub mod crc32;
 pub mod cred;
 pub mod debugfs;
 pub mod device;
