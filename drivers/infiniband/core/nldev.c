@@ -1797,14 +1797,26 @@ out:
 	return ops;
 }
 
-void rdma_link_register(struct rdma_link_ops *ops)
+/**
+ * rdma_link_register - Register a link type
+ * @ops: Link callbacks retained until rdma_link_unregister()
+ *
+ * Return: Zero on success or -EEXIST if the type is already registered.
+ * On failure, @ops is not retained and must not be unregistered.
+ */
+int rdma_link_register(struct rdma_link_ops *ops)
 {
+	int ret = 0;
+
 	down_write(&link_ops_rwsem);
-	if (WARN_ON_ONCE(link_ops_get(ops->type)))
+	if (link_ops_get(ops->type)) {
+		ret = -EEXIST;
 		goto out;
+	}
 	list_add(&ops->list, &link_ops);
 out:
 	up_write(&link_ops_rwsem);
+	return ret;
 }
 EXPORT_SYMBOL(rdma_link_register);
 

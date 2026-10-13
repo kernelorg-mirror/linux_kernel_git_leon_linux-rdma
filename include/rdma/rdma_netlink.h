@@ -130,7 +130,7 @@ struct rdma_link_ops {
 	int (*dellink)(struct ib_device *dev);
 };
 
-void rdma_link_register(struct rdma_link_ops *ops);
+int rdma_link_register(struct rdma_link_ops *ops);
 void rdma_link_unregister(struct rdma_link_ops *ops);
 
 #define MODULE_ALIAS_RDMA_LINK(type) MODULE_ALIAS("rdma-link-" type)

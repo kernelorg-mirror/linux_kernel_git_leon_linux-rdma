@@ -295,11 +295,15 @@ static int __init rxe_module_init(void)
 	if (err)
 		goto err_namespace_exit;
 
-	rdma_link_register(&rxe_link_ops);
+	err = rdma_link_register(&rxe_link_ops);
+	if (err)
+		goto err_net_exit;
 
 	pr_info("loaded\n");
 	return 0;
 
+err_net_exit:
+	rxe_net_exit();
 err_namespace_exit:
 	rxe_namespace_exit();
 err_destroy_wq:

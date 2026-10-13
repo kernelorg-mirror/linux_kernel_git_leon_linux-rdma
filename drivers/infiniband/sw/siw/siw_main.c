@@ -474,11 +474,15 @@ static __init int siw_init_module(void)
 	if (rv)
 		goto out_error;
 
-	rdma_link_register(&siw_link_ops);
+	rv = rdma_link_register(&siw_link_ops);
+	if (rv)
+		goto err_unregister_notifier;
 
 	pr_info("SoftiWARP attached\n");
 	return 0;
 
+err_unregister_notifier:
+	unregister_netdevice_notifier(&siw_netdev_nb);
 out_error:
 	siw_stop_tx_threads();
 
