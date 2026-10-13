@@ -5,6 +5,7 @@
 
 #include <linux/hmm.h>
 #include <linux/libnvdimm.h>
+#include <linux/uaccess.h>
 
 #include <rdma/ib_umem_odp.h>
 
@@ -217,9 +218,13 @@ static int __rxe_odp_mr_copy(struct rxe_mr *mr, u64 user_addr, void *addr,
 		if (bytes > length)
 			bytes = length;
 
-		memcpy(dest, src, bytes);
-		if (dir == RXE_TO_MR_OBJ)
+		if (dir == RXE_TO_MR_OBJ) {
+			memcpy(dest, src, bytes);
 			flush_dcache_page(page);
+		} else if (copy_mc_to_kernel(dest, src, bytes)) {
+			kunmap_local(user_va);
+			return -EHWPOISON;
+		}
 		kunmap_local(user_va);
 
 		length -= bytes;
