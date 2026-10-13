@@ -167,10 +167,32 @@ pub use provider::{
     Operations, //
 };
 
+mod qp;
+pub use qp::{
+    AlternatePath,
+    QueuePairAttributes,
+    QueuePairCapacity,
+    QueuePairChange,
+    QueuePairInitAttributes,
+    QueuePairState,
+    QueuePairType,
+    WorkQueueCapacity, //
+};
+
 #[cfg(all(CONFIG_INFINIBAND_ON_DEMAND_PAGING, CONFIG_INFINIBAND_VIRT_DMA))]
 pub mod odp;
 mod scatterlist;
 pub use scatterlist::ScatterGather;
+
+mod send;
+pub use send::{
+    AtomicSend,
+    DatagramSend,
+    RegisterSend,
+    RemoteSend,
+    SendRequest,
+    SendRequests, //
+};
 
 mod queued_event;
 mod srq;
