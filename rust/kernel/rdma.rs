@@ -16,6 +16,15 @@ pub use access::{
     AccessFlags, //
 };
 
+mod advice;
+pub use advice::{
+    Advice,
+    AdviceFlag,
+    AdviceFlags,
+    MemoryAdvice,
+    MemoryAdviceOperations, //
+};
+
 mod address;
 pub use address::{
     AddressAttributes,
@@ -90,6 +99,25 @@ pub use modification::DeviceModification;
 mod netdev;
 pub use netdev::EthernetLink;
 
+mod mw;
+pub use mw::{
+    MemoryWindowOperations,
+    MemoryWindowType,
+    MemoryWindows,
+    WindowCreation, //
+};
+
+mod mr;
+pub use mr::{
+    MemoryRegion,
+    MemoryRegionOperations,
+    MemoryRegionRef,
+    MemoryRegions,
+    RegionCreation,
+    RegionRequest,
+    UserMemoryRange, //
+};
+
 mod pd;
 pub use pd::{
     ProtectionDomainFlag,
@@ -122,6 +150,9 @@ pub use provider::{
 
 #[cfg(all(CONFIG_INFINIBAND_ON_DEMAND_PAGING, CONFIG_INFINIBAND_VIRT_DMA))]
 pub mod odp;
+mod scatterlist;
+pub use scatterlist::ScatterGather;
+
 mod statistics;
 pub use statistics::{
     Statistics,
