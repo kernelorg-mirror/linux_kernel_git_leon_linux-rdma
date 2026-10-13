@@ -5,6 +5,7 @@
  */
 
 #include <linux/libnvdimm.h>
+#include <rdma/ib_pmem.h>
 
 #include "rxe.h"
 #include "rxe_loc.h"
@@ -117,11 +118,7 @@ static unsigned long rxe_mr_iova_to_page_offset(struct rxe_mr *mr, u64 iova)
 
 static bool is_pmem_page(struct page *pg)
 {
-	unsigned long paddr = page_to_phys(pg);
-
-	return REGION_INTERSECTS ==
-	       region_intersects(paddr, PAGE_SIZE, IORESOURCE_MEM,
-				 IORES_DESC_PERSISTENT_MEMORY);
+	return ib_pmem_range(page_to_phys(pg), PAGE_SIZE);
 }
 
 static int rxe_mr_fill_pages_from_sgt(struct rxe_mr *mr, struct sg_table *sgt)
@@ -547,6 +544,8 @@ int rxe_flush_pmem_iova(struct rxe_mr *mr, u64 start, unsigned int length)
 
 	if (length == 0)
 		return 0;
+	if (!IS_ENABLED(CONFIG_ARCH_HAS_PMEM_API))
+		return -EOPNOTSUPP;
 
 	if (mr->ibmr.type == IB_MR_TYPE_DMA)
 		return -EFAULT;
