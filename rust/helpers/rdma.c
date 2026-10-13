@@ -32,6 +32,12 @@ __rust_helper void rust_helper_rust_rdma_init_provider_registry(atomic_t *state,
 	local_irq_restore(flags);
 }
 
+__rust_helper enum ib_port_state
+rust_helper_ib_get_curr_port_state(struct net_device *ndev)
+{
+	return ib_get_curr_port_state(ndev);
+}
+
 #if !IS_ENABLED(CONFIG_INFINIBAND_USER_ACCESS)
 __rust_helper int rust_helper__ib_copy_validate_udata_in(struct ib_udata *udata,
 						      void *req, size_t size,

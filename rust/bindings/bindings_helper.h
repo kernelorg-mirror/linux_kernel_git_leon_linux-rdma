@@ -119,6 +119,7 @@
 
 #if IS_ENABLED(CONFIG_INFINIBAND)
 #include <rdma/ib_addr.h>
+#include <rdma/ib_cache.h>
 #include <rdma/ib_mad.h>
 #include <rdma/ib_umem_odp.h>
 #include <rdma/uverbs_ioctl.h>

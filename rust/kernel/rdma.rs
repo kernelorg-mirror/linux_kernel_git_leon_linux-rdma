@@ -34,6 +34,8 @@ pub use capabilities::{
     TagMatchingCapabilities, //
 };
 
+pub mod gid;
+
 mod device;
 pub use device::DeviceRef;
 
@@ -64,6 +66,9 @@ pub use mad::{
 
 mod modification;
 pub use modification::DeviceModification;
+
+mod netdev;
+pub use netdev::EthernetLink;
 
 mod port;
 pub use port::{

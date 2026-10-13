@@ -66,3 +66,13 @@ pub(super) fn remove(device: *mut bindings::ib_device) {
     // Release the node after restoring interrupts. Records own no device references.
     drop(node);
 }
+
+/// Checks a provider identity while the caller retains a core registration reference.
+pub(super) fn matches<T: super::DeviceOperations>(device: *mut bindings::ib_device) -> bool {
+    ensure_initialized();
+    PROVIDERS
+        .lock()
+        .as_ref()
+        .and_then(|providers| providers.get(&(device as usize)))
+        == Some(&TypeId::of::<T>())
+}

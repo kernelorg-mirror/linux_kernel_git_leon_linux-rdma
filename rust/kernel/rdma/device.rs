@@ -103,6 +103,34 @@ impl<T: DeviceOperations> DeviceRef<T> {
         // core workqueue acquires its own allocation reference before queueing the device.
         unsafe { bindings::ib_unregister_device_queued(self.as_raw()) };
     }
+
+    /// Looks up a registered provider device associated with a network device.
+    ///
+    /// `driver` filters the core lookup; `RDMA_DRIVER_UNKNOWN` accepts any driver. The result
+    /// is returned only if the Rust adapter installed provider type `T` on that device.
+    /// Only the first core match is checked; a provider-type mismatch returns `None` rather
+    /// than searching further. Use a driver ID dedicated to `T` when lookup must be complete.
+    /// This does not sleep and may be used from network receive callbacks.
+    #[inline]
+    pub fn from_netdev(
+        netdev: &crate::net::Device,
+        driver: bindings::rdma_driver_id,
+    ) -> Option<Self> {
+        // SAFETY: The borrow keeps the initialized netdev allocation live. The core walks its
+        // association table under RCU and takes a registration reference before returning.
+        let device = unsafe { bindings::ib_device_get_by_netdev(netdev.as_raw(), driver) };
+        if device.is_null() {
+            return None;
+        }
+        if !super::registry::matches::<T>(device) {
+            // SAFETY: Release the unmatched lookup reference, without accessing it afterwards.
+            unsafe { bindings::ib_device_put(device) };
+            return None;
+        }
+        // SAFETY: The private registry proves Operations<T> installed this provider. The core
+        // reference excludes its final release and retains the initialized registration resources.
+        Some(unsafe { Self::from_raw(device) })
+    }
 }
 
 impl<T> Clone for DeviceRef<T> {
