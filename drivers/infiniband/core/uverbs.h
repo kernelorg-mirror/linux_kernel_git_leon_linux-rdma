@@ -177,6 +177,7 @@ struct ib_uxrcd_object {
 struct ib_usrq_object {
 	struct ib_uevent_object	uevent;
 	struct ib_uxrcd_object *uxrcd;
+	struct mutex		modify_lock;
 };
 
 struct ib_uqp_object {

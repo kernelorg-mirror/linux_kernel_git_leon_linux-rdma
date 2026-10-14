@@ -2380,7 +2380,9 @@ static int ib_uverbs_post_srq_recv(struct uverbs_attr_bundle *attrs)
 	}
 
 	resp.bad_wr = 0;
+	mutex_lock(&srq->uobject->modify_lock);
 	ret = srq->device->ops.post_srq_recv(srq, wr, &bad_wr);
+	mutex_unlock(&srq->uobject->modify_lock);
 
 	rdma_lookup_put_uobject(&srq->uobject->uevent.uobject,
 				UVERBS_LOOKUP_READ);
@@ -3362,6 +3364,7 @@ static int __uverbs_create_xsrq(struct uverbs_attr_bundle *attrs,
 	INIT_LIST_HEAD(&obj->uevent.event_list);
 	obj->uevent.uobject.user_handle = cmd->user_handle;
 
+	mutex_init(&obj->modify_lock);
 	srq = ib_create_srq_user(pd, &attr, obj, udata);
 	if (IS_ERR(srq)) {
 		ret = PTR_ERR(srq);
@@ -3462,8 +3465,10 @@ static int ib_uverbs_modify_srq(struct uverbs_attr_bundle *attrs)
 	attr.max_wr    = cmd.max_wr;
 	attr.srq_limit = cmd.srq_limit;
 
+	mutex_lock(&srq->uobject->modify_lock);
 	ret = srq->device->ops.modify_srq(srq, &attr, cmd.attr_mask,
 					  &attrs->driver_udata);
+	mutex_unlock(&srq->uobject->modify_lock);
 
 	rdma_lookup_put_uobject(&srq->uobject->uevent.uobject,
 				UVERBS_LOOKUP_READ);
@@ -3487,7 +3492,9 @@ static int ib_uverbs_query_srq(struct uverbs_attr_bundle *attrs)
 	if (IS_ERR(srq))
 		return PTR_ERR(srq);
 
+	mutex_lock(&srq->uobject->modify_lock);
 	ret = ib_query_srq(srq, &attr);
+	mutex_unlock(&srq->uobject->modify_lock);
 
 	rdma_lookup_put_uobject(&srq->uobject->uevent.uobject,
 				UVERBS_LOOKUP_READ);

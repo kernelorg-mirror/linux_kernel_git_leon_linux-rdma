@@ -104,6 +104,7 @@ static int UVERBS_HANDLER(UVERBS_METHOD_SRQ_CREATE)(
 	attr.event_handler = ib_uverbs_srq_event_handler;
 	obj->uevent.uobject.user_handle = user_handle;
 
+	mutex_init(&obj->modify_lock);
 	srq = ib_create_srq_user(pd, &attr, obj, &attrs->driver_udata);
 	if (IS_ERR(srq)) {
 		ret = PTR_ERR(srq);
