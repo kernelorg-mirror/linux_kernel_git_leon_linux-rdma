@@ -1329,6 +1329,12 @@ static void xfrm_hash_grow_check(struct net *net, int have_hash_collision)
 		schedule_work(&net->xfrm.state_hash_work);
 }
 
+/* An input SA cannot send. */
+static bool xfrm_state_is_input(const struct xfrm_state *x)
+{
+	return x->dir == XFRM_SA_DIR_IN;
+}
+
 static void xfrm_state_look_at(struct xfrm_policy *pol, struct xfrm_state *x,
 			       const struct flowi *fl, unsigned short family,
 			       struct xfrm_state **best, int *acq_in_progress,
@@ -1355,6 +1361,15 @@ static void xfrm_state_look_at(struct xfrm_policy *pol, struct xfrm_state *x,
 
 		if (x->pcpu_num != UINT_MAX && x->pcpu_num != pcpu_id)
 			return;
+
+		/* Take an input SA only when nothing else matches. Output
+		 * resolution then still reports the mismatch.
+		 */
+		if (*best && xfrm_state_is_input(x) != xfrm_state_is_input(*best)) {
+			if (xfrm_state_is_input(*best))
+				*best = x;
+			return;
+		}
 
 		if (!*best ||
 		    ((*best)->pcpu_num == UINT_MAX && x->pcpu_num == pcpu_id) ||
@@ -1480,7 +1495,7 @@ cached:
 			xfrm_state_look_at(pol, x, fl, family,
 					   &best, &acquire_in_progress, &error, pcpu_id);
 	}
-	if (best || acquire_in_progress)
+	if ((best && !xfrm_state_is_input(best)) || acquire_in_progress)
 		goto found;
 
 	h_wildcard = __xfrm_dst_hash(daddr, &saddr_wildcard, tmpl->reqid,
