@@ -1243,7 +1243,8 @@ struct xfrm_state *xfrm_input_state_lookup(struct net *net, u32 mark,
 
 	xfrm_hash_ptrs_get(net, &state_ptrs);
 
-	x = __xfrm_state_lookup(&state_ptrs, mark, daddr, spi, proto, family, 0);
+	x = __xfrm_state_lookup(&state_ptrs, mark, daddr, spi, proto, family,
+				XFRM_SA_DIR_IN);
 	if (x) {
 		spin_lock(&net->xfrm.xfrm_state_lock);
 		if (x->km.state != XFRM_STATE_VALID) {
@@ -1260,6 +1261,14 @@ struct xfrm_state *xfrm_input_state_lookup(struct net *net, u32 mark,
 			hlist_add_head_rcu(&x->state_cache_input, state_cache_input);
 		}
 		spin_unlock(&net->xfrm.xfrm_state_lock);
+	} else {
+		/* An output SA is of no use here. Return it anyway, so that
+		 * the caller reports a direction error instead of a missing
+		 * SA. It is not cached, which keeps the cache free of SAs
+		 * that cannot receive.
+		 */
+		x = __xfrm_state_lookup(&state_ptrs, mark, daddr, spi, proto,
+					family, 0);
 	}
 
 out:
