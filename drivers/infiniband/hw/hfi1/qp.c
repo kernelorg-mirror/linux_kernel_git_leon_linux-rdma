@@ -295,7 +295,7 @@ int hfi1_setup_wqe(struct rvt_qp *qp, struct rvt_swqe *wqe, bool *call_send)
 		ah = rvt_get_swqe_ah(wqe);
 		if (wqe->length > (1 << ah->log_pmtu))
 			return -EINVAL;
-		if (ibp->sl_to_sc[rdma_ah_get_sl(&ah->attr)] == 0xf)
+		if (ibp->sl_to_sc[rdma_ah_get_sl(wqe->ud_wr.attr)] == 0xf)
 			return -EINVAL;
 		break;
 	default:

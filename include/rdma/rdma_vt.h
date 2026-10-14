@@ -161,6 +161,7 @@ struct rvt_pd {
 /* Address handle */
 struct rvt_ah {
 	struct ib_ah ibah;
+	spinlock_t lock;		/* protects attr and its GID reference */
 	struct rdma_ah_attr attr;
 	u8 vl;
 	u8 log_pmtu;

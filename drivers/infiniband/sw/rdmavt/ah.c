@@ -88,6 +88,7 @@ int rvt_create_ah(struct ib_ah *ibah, struct rdma_ah_init_attr *init_attr,
 	dev->n_ahs_allocated++;
 	spin_unlock_irqrestore(&dev->n_ahs_lock, flags);
 
+	spin_lock_init(&ah->lock);
 	rdma_copy_ah_attr(&ah->attr, init_attr->ah_attr);
 	ah->smi = smi;
 
@@ -128,11 +129,14 @@ int rvt_destroy_ah(struct ib_ah *ibah, u32 destroy_flags)
 int rvt_modify_ah(struct ib_ah *ibah, struct rdma_ah_attr *ah_attr)
 {
 	struct rvt_ah *ah = ibah_to_rvtah(ibah);
+	unsigned long flags;
 
 	if (rvt_check_ah_attr(ibah->device, ah_attr, ah->smi))
 		return -EINVAL;
 
-	ah->attr = *ah_attr;
+	spin_lock_irqsave(&ah->lock, flags);
+	rdma_replace_ah_attr(&ah->attr, ah_attr);
+	spin_unlock_irqrestore(&ah->lock, flags);
 
 	return 0;
 }
@@ -147,8 +151,11 @@ int rvt_modify_ah(struct ib_ah *ibah, struct rdma_ah_attr *ah_attr)
 int rvt_query_ah(struct ib_ah *ibah, struct rdma_ah_attr *ah_attr)
 {
 	struct rvt_ah *ah = ibah_to_rvtah(ibah);
+	unsigned long flags;
 
+	spin_lock_irqsave(&ah->lock, flags);
 	*ah_attr = ah->attr;
+	spin_unlock_irqrestore(&ah->lock, flags);
 
 	return 0;
 }
