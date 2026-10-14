@@ -10,6 +10,7 @@
 #include <rdma/uverbs_ioctl.h>
 #include <rdma/opa_addr.h>
 #include <rdma/ib_cache.h>
+#include <rdma/ib_ucaps.h>
 
 /*
  * This ioctl method allows calling any defined write or write_ex
@@ -248,6 +249,9 @@ static int UVERBS_HANDLER(UVERBS_METHOD_GET_CONTEXT)(
 	u32 num_comp = attrs->ufile->device->num_comp_vectors;
 	u64 core_support = IB_UVERBS_CORE_SUPPORT_OPTIONAL_MR_ACCESS;
 	struct ib_device *ib_dev;
+	u64 enabled_caps = 0;
+	int *fd_array;
+	int fd_count;
 	int ret;
 
 	ib_dev = srcu_dereference(attrs->ufile->device->ib_dev,
@@ -267,9 +271,23 @@ static int UVERBS_HANDLER(UVERBS_METHOD_GET_CONTEXT)(
 	if (IS_UVERBS_COPY_ERR(ret))
 		return ret;
 
+	if (uverbs_attr_is_valid(attrs, UVERBS_ATTR_GET_CONTEXT_FD_ARR)) {
+		fd_count = uverbs_attr_ptr_get_array_size(
+			attrs, UVERBS_ATTR_GET_CONTEXT_FD_ARR, sizeof(int));
+		if (fd_count < 0)
+			return fd_count;
+
+		fd_array = uverbs_attr_get_alloced_ptr(
+			attrs, UVERBS_ATTR_GET_CONTEXT_FD_ARR);
+		ret = ib_get_ucaps(fd_array, fd_count, &enabled_caps);
+		if (ret)
+			return ret;
+	}
+
 	ret = ib_alloc_ucontext(attrs);
 	if (ret)
 		return ret;
+	attrs->context->enabled_caps = enabled_caps;
 	ret = ib_init_ucontext(attrs);
 	if (ret) {
 		rdma_restrack_put(&attrs->context->res);
