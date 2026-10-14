@@ -141,6 +141,9 @@ enum {
 	XFRM_POLICY_MAX	= 3
 };
 
+/* Two SAs can share destination address, SPI and protocol only when both
+ * have a direction and the directions differ.
+ */
 enum xfrm_sa_dir {
 	XFRM_SA_DIR_IN	= 1,
 	XFRM_SA_DIR_OUT = 2

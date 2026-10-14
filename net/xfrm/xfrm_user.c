@@ -3466,8 +3466,9 @@ static int xfrm_do_migrate_state(struct sk_buff *skb, struct nlmsghdr *nlh,
 						m.old_mark.v & m.old_mark.m;
 		struct xfrm_state *x_new;
 
-		x_new = xfrm_state_lookup(net, new_mark_key, &m.new_daddr,
-					  um->id.spi, um->id.proto, m.new_family);
+		x_new = xfrm_state_lookup_dir(net, new_mark_key, &m.new_daddr,
+					      um->id.spi, um->id.proto,
+					      m.new_family, x->dir);
 		if (x_new) {
 			xfrm_state_put(x_new);
 			NL_SET_ERR_MSG(extack, "New SA tuple already occupied");

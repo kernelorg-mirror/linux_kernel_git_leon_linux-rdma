@@ -1313,7 +1313,8 @@ __xfrm_state_locate(struct xfrm_state *x, int use_spi, int family)
 
 	if (use_spi)
 		return __xfrm_state_lookup(&state_ptrs, mark, &x->id.daddr,
-					   x->id.spi, x->id.proto, family, 0);
+					   x->id.spi, x->id.proto, family,
+					   x->dir);
 	else
 		return __xfrm_state_lookup_byaddr(&state_ptrs, mark,
 						  &x->id.daddr,

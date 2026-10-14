@@ -267,8 +267,9 @@ Error Handling
 
 If the target SA tuple (new daddr, SPI, proto, new family) is already
 occupied, the operation returns ``-EEXIST`` before the migration begins.
-The old SA remains intact and the operation is safe to retry after
-resolving the conflict.
+An SA of the other direction does not occupy the tuple when the SA to
+migrate has a direction. The old SA remains intact and the operation is
+safe to retry after resolving the conflict.
 
 If the target SA is deleted before the migration completes, the operation
 returns ``-ESRCH``. No new SA is installed. Userspace should verify the
