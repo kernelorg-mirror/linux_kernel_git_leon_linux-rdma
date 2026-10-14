@@ -281,7 +281,7 @@ static void srpt_qp_event(struct ib_event *event, void *ptr)
 	struct srpt_rdma_ch *ch = ptr;
 
 	pr_debug("QP event %d on ch=%p sess_name=%s-%d state=%s\n",
-		 event->event, ch, ch->sess_name, ch->qp->qp_num,
+		 event->event, ch, ch->sess_name, event->element.qp->qp_num,
 		 get_ch_state_name(ch->state));
 
 	switch (event->event) {
@@ -293,7 +293,7 @@ static void srpt_qp_event(struct ib_event *event, void *ptr)
 		break;
 	case IB_EVENT_QP_LAST_WQE_REACHED:
 		pr_debug("%s-%d, state %s: received Last WQE event.\n",
-			 ch->sess_name, ch->qp->qp_num,
+			 ch->sess_name, event->element.qp->qp_num,
 			 get_ch_state_name(ch->state));
 		break;
 	default:
