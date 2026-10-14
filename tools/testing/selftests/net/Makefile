@@ -199,6 +199,7 @@ TEST_GEN_PROGS := \
 	tap \
 	tcp_port_share \
 	tls \
+	xfrm_sa_dir \
 # end of TEST_GEN_PROGS
 
 TEST_FILES := \

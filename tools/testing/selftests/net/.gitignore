@@ -58,3 +58,4 @@ txtimestamp
 udpgso
 udpgso_bench_rx
 udpgso_bench_tx
+xfrm_sa_dir
