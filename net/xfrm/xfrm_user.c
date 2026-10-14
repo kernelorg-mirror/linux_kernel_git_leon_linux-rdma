@@ -1931,12 +1931,19 @@ static int xfrm_alloc_userspi(struct sk_buff *skb, struct nlmsghdr *nlh,
 		goto out_noput;
 	}
 
+	if (attrs[XFRMA_SA_DIR]) {
+		/* Once the SA has an SPI, lookups find it and read the
+		 * direction without taking the SA lock.
+		 */
+		spin_lock_bh(&x->lock);
+		if (!x->id.spi)
+			x->dir = nla_get_u8(attrs[XFRMA_SA_DIR]);
+		spin_unlock_bh(&x->lock);
+	}
+
 	err = xfrm_alloc_spi(x, p->min, p->max, extack);
 	if (err)
 		goto out;
-
-	if (attrs[XFRMA_SA_DIR])
-		x->dir = nla_get_u8(attrs[XFRMA_SA_DIR]);
 
 	resp_skb = xfrm_state_netlink(skb, x, nlh->nlmsg_seq);
 	if (IS_ERR(resp_skb)) {
