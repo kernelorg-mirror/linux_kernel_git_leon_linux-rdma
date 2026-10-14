@@ -260,9 +260,9 @@ struct ib_cq *__ib_alloc_cq(struct ib_device *dev, void *private, int nr_cqe,
 	case IB_POLL_UNBOUND_WORKQUEUE:
 		cq->comp_handler = ib_cq_completion_workqueue;
 		INIT_WORK(&cq->work, ib_cq_poll_work);
-		ib_req_notify_cq(cq, IB_CQ_NEXT_COMP);
 		cq->comp_wq = (cq->poll_ctx == IB_POLL_WORKQUEUE) ?
 				ib_comp_wq : ib_comp_unbound_wq;
+		ib_req_notify_cq(cq, IB_CQ_NEXT_COMP);
 		break;
 	default:
 		ret = -EINVAL;
@@ -341,7 +341,8 @@ void ib_free_cq(struct ib_cq *cq)
 		break;
 	case IB_POLL_WORKQUEUE:
 	case IB_POLL_UNBOUND_WORKQUEUE:
-		cancel_work_sync(&cq->work);
+		/* Provider callbacks remain possible until destroy_cq returns. */
+		disable_work_sync(&cq->work);
 		break;
 	default:
 		WARN_ON_ONCE(1);
