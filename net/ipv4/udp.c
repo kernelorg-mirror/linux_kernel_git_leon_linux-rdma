@@ -1799,7 +1799,14 @@ drop:
 	return err;
 }
 
-void udp_destruct_common(struct sock *sk)
+/**
+ * udp_flush_receive_queue - Reclaim receive memory of a closed UDP socket
+ * @sk: retained UDP socket, after closing and draining network readers
+ *
+ * The caller must exclude receive producers and socket readers. Retained socket
+ * references may remain; producer storage is left for the normal destructor.
+ */
+void udp_flush_receive_queue(struct sock *sk)
 {
 	/* reclaim completely the forward allocated memory */
 	struct udp_sock *up = udp_sk(sk);
@@ -1812,7 +1819,13 @@ void udp_destruct_common(struct sock *sk)
 		kfree_skb(skb);
 	}
 	udp_rmem_release(sk, total, 0, true);
-	kfree(up->udp_prod_queue);
+}
+EXPORT_SYMBOL_GPL(udp_flush_receive_queue);
+
+void udp_destruct_common(struct sock *sk)
+{
+	udp_flush_receive_queue(sk);
+	kfree(udp_sk(sk)->udp_prod_queue);
 }
 
 static void udp_destruct_sock(struct sock *sk)
@@ -2646,8 +2659,19 @@ int udp_rcv(struct sk_buff *skb)
 		goto no_sk;
 
 	if (sk) {
-		struct dst_entry *dst = skb_dst(skb);
+		struct dst_entry *dst;
 		int ret;
+
+		/* NFQUEUE can retain a prefetched socket across close. Do not
+		 * repopulate its receive cache or queues when delivery resumes.
+		 */
+		if (unlikely(sock_flag(sk, SOCK_DEAD))) {
+			if (refcounted)
+				sock_put(sk);
+			sk = NULL;
+			goto no_sk;
+		}
+		dst = skb_dst(skb);
 
 		if (unlikely(rcu_dereference(sk->sk_rx_dst) != dst))
 			udp_sk_rx_dst_set(sk, dst);

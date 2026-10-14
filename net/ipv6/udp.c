@@ -1126,8 +1126,19 @@ INDIRECT_CALLABLE_SCOPE int udpv6_rcv(struct sk_buff *skb)
 		goto no_sk;
 
 	if (sk) {
-		struct dst_entry *dst = skb_dst(skb);
+		struct dst_entry *dst;
 		int ret;
+
+		/* NFQUEUE can retain a prefetched socket across close. Do not
+		 * repopulate its receive cache or queues when delivery resumes.
+		 */
+		if (unlikely(sock_flag(sk, SOCK_DEAD))) {
+			if (refcounted)
+				sock_put(sk);
+			sk = NULL;
+			goto no_sk;
+		}
+		dst = skb_dst(skb);
 
 		if (unlikely(rcu_dereference(sk->sk_rx_dst) != dst))
 			udp6_sk_rx_dst_set(sk, dst);
