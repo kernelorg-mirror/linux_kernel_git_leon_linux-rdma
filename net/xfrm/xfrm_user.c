@@ -3380,9 +3380,10 @@ static int xfrm_do_migrate_state(struct sk_buff *skb, struct nlmsghdr *nlh,
 
 	copy_from_user_migrate_state(&m, um);
 
-	x = xfrm_state_lookup(net, m.old_mark.v & m.old_mark.m,
-			      &um->id.daddr, um->id.spi,
-			      um->id.proto, um->id.family);
+	x = xfrm_state_lookup_dir(net, m.old_mark.v & m.old_mark.m,
+				  &um->id.daddr, um->id.spi,
+				  um->id.proto, um->id.family,
+				  nla_get_u8_default(attrs[XFRMA_SA_DIR], 0));
 	if (!x) {
 		NL_SET_ERR_MSG(extack, "Can not find state");
 		return -ESRCH;
@@ -3791,6 +3792,7 @@ static int xfrm_reject_unused_attr(int type, struct nlattr **attrs,
 		case XFRM_MSG_NEWAE:
 		case XFRM_MSG_GETAE:
 		case XFRM_MSG_EXPIRE:
+		case XFRM_MSG_MIGRATE_STATE:
 			break;
 		default:
 			NL_SET_ERR_MSG(extack, "Invalid attribute SA_DIR");
@@ -3827,6 +3829,7 @@ static int xfrm_reject_unused_attr(int type, struct nlattr **attrs,
 			case XFRMA_SET_MARK_MASK:
 			case XFRMA_MTIMER_THRESH:
 			case XFRMA_NAT_KEEPALIVE_INTERVAL:
+			case XFRMA_SA_DIR:
 				break;
 			default:
 				NL_SET_ERR_MSG_ATTR(extack, attrs[i],

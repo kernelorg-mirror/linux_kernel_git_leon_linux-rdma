@@ -27,9 +27,9 @@ SA Identification
 =================
 
 The struct is defined in ``include/uapi/linux/xfrm.h``. The SA is looked
-up using ``xfrm_state_lookup()`` with ``id.spi``,
-``id.daddr``, ``id.proto``, ``id.family``, and
-``old_mark.v & old_mark.m`` as the mark key::
+up using ``xfrm_state_lookup_dir()`` with ``id.spi``,
+``id.daddr``, ``id.proto``, ``id.family``, ``old_mark.v & old_mark.m`` as
+the mark key, and the optional ``XFRMA_SA_DIR`` attribute::
 
     struct xfrm_user_migrate_state {
         struct xfrm_usersa_id  id;       /* spi, daddr, proto, family */
@@ -45,6 +45,11 @@ up using ``xfrm_state_lookup()`` with ``id.spi``,
 
 The ``reserved`` field must be set to zero; the kernel rejects any
 other value with ``-EINVAL``.
+
+An input SA and an output SA can share ``id``. ``XFRMA_SA_DIR`` selects
+the one to migrate: an SA without a direction matches either value, and
+omitting the attribute matches any SA with that ``id``. The attribute only
+selects an SA; the direction of the migrated SA stays unchanged.
 
 Supported Attributes
 ====================
@@ -224,7 +229,8 @@ Differences from the request
        always carries the real selector of the new SA.
    * - ``XFRMA_SA_DIR``
      - Present in the notification (set from the direction of the new
-       SA) but **not accepted as input** — direction is immutable.
+       SA). In a request it only selects the SA to migrate, see
+       `SA Identification`_; direction is immutable.
    * - ``flags``
      - Echoed back as-is. ``XFRM_MIGRATE_STATE_CLEAR_OFFLOAD`` and
        ``XFRM_MIGRATE_STATE_UPDATE_H2H_SEL`` describe the request that was
