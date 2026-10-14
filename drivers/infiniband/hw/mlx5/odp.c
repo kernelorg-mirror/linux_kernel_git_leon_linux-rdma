@@ -285,18 +285,19 @@ static bool mlx5_ib_invalidate_range(struct mmu_interval_notifier *mni,
 
 	mutex_lock(&umem_odp->umem_mutex);
 	mmu_interval_set_seq(mni, cur_seq);
+	start = max_t(u64, ib_umem_start(umem_odp), range->start);
+	end = min_t(u64, ib_umem_end(umem_odp), range->end);
 	/*
 	 * If npages is zero then umem_odp->private may not be setup yet. This
 	 * does not complete until after the first page is mapped for DMA.
 	 */
-	if (!umem_odp->npages)
+	if (!umem_odp->npages) {
+		ib_umem_odp_unmap_dma_pages(umem_odp, start, end);
 		goto out;
+	}
 	mr = umem_odp->private;
 	if (!mr)
 		goto out;
-
-	start = max_t(u64, ib_umem_start(umem_odp), range->start);
-	end = min_t(u64, ib_umem_end(umem_odp), range->end);
 
 	/*
 	 * Iteration one - zap the HW's MTTs. The notifiers_count ensures that
