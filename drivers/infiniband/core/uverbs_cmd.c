@@ -1020,6 +1020,7 @@ static int create_cq(struct uverbs_attr_bundle *attrs,
 	obj->uevent.uobject.user_handle = cmd->user_handle;
 	INIT_LIST_HEAD(&obj->comp_list);
 	INIT_LIST_HEAD(&obj->uevent.event_list);
+	mutex_init(&obj->resize_lock);
 
 	attr.cqe = cmd->cqe;
 	attr.comp_vector = cmd->comp_vector;
@@ -1125,14 +1126,16 @@ static int ib_uverbs_resize_cq(struct uverbs_attr_bundle *attrs)
 	if (IS_ERR(cq))
 		return PTR_ERR(cq);
 
+	mutex_lock(&cq->uobject->resize_lock);
 	ret = cq->device->ops.resize_user_cq(cq, cmd.cqe, &attrs->driver_udata);
 	if (ret)
-		goto out;
+		goto out_unlock;
 
 	resp.cqe = cq->cqe;
 
 	ret = uverbs_response(attrs, &resp, sizeof(resp));
-out:
+out_unlock:
+	mutex_unlock(&cq->uobject->resize_lock);
 	rdma_lookup_put_uobject(&cq->uobject->uevent.uobject,
 				UVERBS_LOOKUP_READ);
 

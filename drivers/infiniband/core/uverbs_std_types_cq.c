@@ -115,6 +115,7 @@ static int UVERBS_HANDLER(UVERBS_METHOD_CQ_CREATE)(
 
 	INIT_LIST_HEAD(&obj->comp_list);
 	INIT_LIST_HEAD(&obj->uevent.event_list);
+	mutex_init(&obj->resize_lock);
 
 	cq = rdma_zalloc_drv_obj(ib_dev, ib_cq);
 	if (!cq) {

@@ -193,6 +193,7 @@ struct ib_uwq_object {
 
 struct ib_ucq_object {
 	struct ib_uevent_object uevent;
+	struct mutex		resize_lock;
 	struct list_head	comp_list;
 	u32			comp_events_reported;
 };

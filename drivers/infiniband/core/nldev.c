@@ -684,7 +684,8 @@ static int fill_res_cq_entry(struct sk_buff *msg, bool has_cap_net_admin,
 	struct ib_cq *cq = container_of(res, struct ib_cq, res);
 	struct ib_device *dev = cq->device;
 
-	if (nla_put_u32(msg, RDMA_NLDEV_ATTR_RES_CQE, cq->cqe))
+	/* This diagnostic snapshot may race with provider-serialized resizing. */
+	if (nla_put_u32(msg, RDMA_NLDEV_ATTR_RES_CQE, data_race(READ_ONCE(cq->cqe))))
 		return -EMSGSIZE;
 	if (nla_put_u64_64bit(msg, RDMA_NLDEV_ATTR_RES_USECNT,
 			      atomic_read(&cq->usecnt), RDMA_NLDEV_ATTR_PAD))
