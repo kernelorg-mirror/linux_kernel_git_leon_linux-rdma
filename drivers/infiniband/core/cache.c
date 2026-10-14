@@ -1373,7 +1373,7 @@ int rdma_read_gid_l2_fields(const struct ib_gid_attr *attr,
 		return -ENODEV;
 	}
 	if (smac)
-		ether_addr_copy(smac, ndev->dev_addr);
+		memcpy(smac, ndev->dev_addr, ETH_ALEN);
 	if (vlan_id) {
 		*vlan_id = 0xffff;
 		if (is_vlan_dev(ndev)) {
@@ -1383,7 +1383,7 @@ int rdma_read_gid_l2_fields(const struct ib_gid_attr *attr,
 			 * device is vlan device, consider vlan id of
 			 * the lower vlan device for this gid entry.
 			 */
-			netdev_walk_all_lower_dev_rcu(attr->ndev,
+			netdev_walk_all_lower_dev_rcu(ndev,
 					get_lower_dev_vlan, &priv);
 		}
 	}
