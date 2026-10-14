@@ -1177,11 +1177,19 @@ static struct xfrm_state *__xfrm_state_lookup_all(const struct xfrm_hash_state_p
 	return NULL;
 }
 
+/* An SA without a direction can be used in both directions. A zero @dir
+ * accepts any SA.
+ */
+static bool xfrm_state_dir_match(const struct xfrm_state *x, u8 dir)
+{
+	return !dir || !x->dir || x->dir == dir;
+}
+
 static struct xfrm_state *__xfrm_state_lookup(const struct xfrm_hash_state_ptrs *state_ptrs,
 					      u32 mark,
 					      const xfrm_address_t *daddr,
 					      __be32 spi, u8 proto,
-					      unsigned short family)
+					      unsigned short family, u8 dir)
 {
 	unsigned int h = __xfrm_spi_hash(daddr, spi, proto, family, state_ptrs->hmask);
 	struct xfrm_state *x;
@@ -1194,6 +1202,8 @@ static struct xfrm_state *__xfrm_state_lookup(const struct xfrm_hash_state_ptrs 
 			continue;
 
 		if ((mark & x->mark.m) != x->mark.v)
+			continue;
+		if (!xfrm_state_dir_match(x, dir))
 			continue;
 		if (!xfrm_state_hold_rcu(x))
 			continue;
@@ -1233,7 +1243,7 @@ struct xfrm_state *xfrm_input_state_lookup(struct net *net, u32 mark,
 
 	xfrm_hash_ptrs_get(net, &state_ptrs);
 
-	x = __xfrm_state_lookup(&state_ptrs, mark, daddr, spi, proto, family);
+	x = __xfrm_state_lookup(&state_ptrs, mark, daddr, spi, proto, family, 0);
 	if (x) {
 		spin_lock(&net->xfrm.xfrm_state_lock);
 		if (x->km.state != XFRM_STATE_VALID) {
@@ -1294,7 +1304,7 @@ __xfrm_state_locate(struct xfrm_state *x, int use_spi, int family)
 
 	if (use_spi)
 		return __xfrm_state_lookup(&state_ptrs, mark, &x->id.daddr,
-					   x->id.spi, x->id.proto, family);
+					   x->id.spi, x->id.proto, family, 0);
 	else
 		return __xfrm_state_lookup_byaddr(&state_ptrs, mark,
 						  &x->id.daddr,
@@ -2374,8 +2384,8 @@ void xfrm_state_update_stats(struct net *net)
 }
 
 struct xfrm_state *
-xfrm_state_lookup(struct net *net, u32 mark, const xfrm_address_t *daddr, __be32 spi,
-		  u8 proto, unsigned short family)
+xfrm_state_lookup_dir(struct net *net, u32 mark, const xfrm_address_t *daddr,
+		      __be32 spi, u8 proto, unsigned short family, u8 dir)
 {
 	struct xfrm_hash_state_ptrs state_ptrs;
 	struct xfrm_state *x;
@@ -2383,9 +2393,17 @@ xfrm_state_lookup(struct net *net, u32 mark, const xfrm_address_t *daddr, __be32
 	rcu_read_lock();
 	xfrm_hash_ptrs_get(net, &state_ptrs);
 
-	x = __xfrm_state_lookup(&state_ptrs, mark, daddr, spi, proto, family);
+	x = __xfrm_state_lookup(&state_ptrs, mark, daddr, spi, proto, family, dir);
 	rcu_read_unlock();
 	return x;
+}
+EXPORT_SYMBOL(xfrm_state_lookup_dir);
+
+struct xfrm_state *
+xfrm_state_lookup(struct net *net, u32 mark, const xfrm_address_t *daddr, __be32 spi,
+		  u8 proto, unsigned short family)
+{
+	return xfrm_state_lookup_dir(net, mark, daddr, spi, proto, family, 0);
 }
 EXPORT_SYMBOL(xfrm_state_lookup);
 
