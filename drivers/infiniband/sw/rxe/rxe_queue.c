@@ -5,6 +5,7 @@
  */
 
 #include <linux/vmalloc.h>
+#include <asm/shmparam.h>
 #include "rxe.h"
 #include "rxe_loc.h"
 #include "rxe_queue.h"
@@ -86,7 +87,10 @@ struct rxe_queue *rxe_queue_init(struct rxe_dev *rxe, int *num_elem,
 
 	buf_size = sizeof(struct rxe_queue_buf) + num_slots * elem_size;
 
-	q->buf = vmalloc_user(buf_size);
+	q->buf = __vmalloc_node_range(buf_size, SHMLBA, VMALLOC_START,
+				      VMALLOC_END, GFP_KERNEL_ACCOUNT | __GFP_ZERO,
+				      PAGE_KERNEL, VM_USERMAP, NUMA_NO_NODE,
+				      __builtin_return_address(0));
 	if (!q->buf)
 		goto err2;
 
