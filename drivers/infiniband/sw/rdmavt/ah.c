@@ -8,17 +8,18 @@
 #include "vt.h" /* for prints */
 
 /**
- * rvt_check_ah - validate the attributes of AH
+ * rvt_check_ah_attr - validate the attributes of AH
  * @ibdev: the ib device
  * @ah_attr: the attributes of the AH
+ * @smi: whether the AH is restricted to SMI queue pairs
  *
  * If driver supports a more detailed check_ah function call back to it
  * otherwise just check the basics.
  *
  * Return: 0 on success
  */
-int rvt_check_ah(struct ib_device *ibdev,
-		 struct rdma_ah_attr *ah_attr)
+static int rvt_check_ah_attr(struct ib_device *ibdev,
+			     struct rdma_ah_attr *ah_attr, bool smi)
 {
 	int err;
 	int port_num = rdma_ah_get_port_num(ah_attr);
@@ -40,8 +41,20 @@ int rvt_check_ah(struct ib_device *ibdev,
 	    rdma_ah_read_grh(ah_attr)->sgid_index >= port_attr.gid_tbl_len)
 		return -EINVAL;
 	if (rdi->driver_f.check_ah)
-		return rdi->driver_f.check_ah(ibdev, ah_attr);
+		return rdi->driver_f.check_ah(ibdev, ah_attr, smi);
 	return 0;
+}
+
+/**
+ * rvt_check_ah - validate address attributes for a data queue pair
+ * @ibdev: the ib device
+ * @ah_attr: the attributes of the AH
+ *
+ * Return: 0 on success
+ */
+int rvt_check_ah(struct ib_device *ibdev, struct rdma_ah_attr *ah_attr)
+{
+	return rvt_check_ah_attr(ibdev, ah_attr, false);
 }
 EXPORT_SYMBOL(rvt_check_ah);
 
@@ -61,8 +74,9 @@ int rvt_create_ah(struct ib_ah *ibah, struct rdma_ah_init_attr *init_attr,
 	struct rvt_ah *ah = ibah_to_rvtah(ibah);
 	struct rvt_dev_info *dev = ib_to_rvt(ibah->device);
 	unsigned long flags;
+	bool smi = init_attr->flags & RDMA_CREATE_AH_SMI;
 
-	if (rvt_check_ah(ibah->device, init_attr->ah_attr))
+	if (rvt_check_ah_attr(ibah->device, init_attr->ah_attr, smi))
 		return -EINVAL;
 
 	spin_lock_irqsave(&dev->n_ahs_lock, flags);
@@ -75,6 +89,7 @@ int rvt_create_ah(struct ib_ah *ibah, struct rdma_ah_init_attr *init_attr,
 	spin_unlock_irqrestore(&dev->n_ahs_lock, flags);
 
 	rdma_copy_ah_attr(&ah->attr, init_attr->ah_attr);
+	ah->smi = smi;
 
 	if (dev->driver_f.notify_new_ah)
 		dev->driver_f.notify_new_ah(ibah->device,
@@ -114,7 +129,7 @@ int rvt_modify_ah(struct ib_ah *ibah, struct rdma_ah_attr *ah_attr)
 {
 	struct rvt_ah *ah = ibah_to_rvtah(ibah);
 
-	if (rvt_check_ah(ibah->device, ah_attr))
+	if (rvt_check_ah_attr(ibah->device, ah_attr, ah->smi))
 		return -EINVAL;
 
 	ah->attr = *ah_attr;

@@ -230,7 +230,7 @@ static void hfi1_update_sm_ah_attr(struct hfi1_ibport *ibp,
 }
 
 static int hfi1_modify_qp0_ah(struct hfi1_ibport *ibp,
-			      struct rvt_ah *ah, u32 dlid)
+			      struct rvt_ah *ah, u32 dlid, u8 sl)
 {
 	struct rdma_ah_attr attr;
 	struct rvt_qp *qp0;
@@ -239,6 +239,7 @@ static int hfi1_modify_qp0_ah(struct hfi1_ibport *ibp,
 	memset(&attr, 0, sizeof(attr));
 	attr.type = ah->ibah.type;
 	hfi1_update_sm_ah_attr(ibp, &attr, dlid);
+	rdma_ah_set_sl(&attr, sl);
 	rcu_read_lock();
 	qp0 = rcu_dereference(ibp->rvp.qp[0]);
 	if (qp0)
@@ -259,10 +260,11 @@ static struct ib_ah *hfi1_create_qp0_ah(struct hfi1_ibport *ibp, u32 dlid)
 	memset(&attr, 0, sizeof(attr));
 	attr.type = rdma_ah_find_type(&dd->verbs_dev.rdi.ibdev, port_num);
 	hfi1_update_sm_ah_attr(ibp, &attr, dlid);
+	rdma_ah_set_sl(&attr, ibp->rvp.sm_sl);
 	rcu_read_lock();
 	qp0 = rcu_dereference(ibp->rvp.qp[0]);
 	if (qp0)
-		ah = rdma_create_ah(qp0->ibqp.pd, &attr, 0);
+		ah = rdma_create_ah(qp0->ibqp.pd, &attr, RDMA_CREATE_AH_SMI);
 	rcu_read_unlock();
 	return ah;
 }
@@ -1410,19 +1412,19 @@ static int __subn_set_opa_portinfo(struct opa_smp *smp, u32 am, u8 *data,
 	} else if (smlid != ibp->rvp.sm_lid || msl != ibp->rvp.sm_sl) {
 		pr_warn("SubnSet(OPA_PortInfo) smlid 0x%x\n", smlid);
 		spin_lock_irqsave(&ibp->rvp.lock, flags);
-		if (ibp->rvp.sm_ah) {
-			if (smlid != ibp->rvp.sm_lid)
-				hfi1_modify_qp0_ah(ibp, ibp->rvp.sm_ah, smlid);
-			if (msl != ibp->rvp.sm_sl)
-				rdma_ah_set_sl(&ibp->rvp.sm_ah->attr, msl);
+		ret = ibp->rvp.sm_ah ?
+			hfi1_modify_qp0_ah(ibp, ibp->rvp.sm_ah, smlid, msl) : 0;
+		if (!ret) {
+			ibp->rvp.sm_lid = smlid;
+			ibp->rvp.sm_sl = msl;
 		}
 		spin_unlock_irqrestore(&ibp->rvp.lock, flags);
-		if (smlid != ibp->rvp.sm_lid)
-			ibp->rvp.sm_lid = smlid;
-		if (msl != ibp->rvp.sm_sl)
-			ibp->rvp.sm_sl = msl;
-		event.event = IB_EVENT_SM_CHANGE;
-		ib_dispatch_event(&event);
+		if (ret) {
+			smp->status |= IB_SMP_INVALID_FIELD;
+		} else {
+			event.event = IB_EVENT_SM_CHANGE;
+			ib_dispatch_event(&event);
+		}
 	}
 
 	if (pi->link_down_reason == 0) {

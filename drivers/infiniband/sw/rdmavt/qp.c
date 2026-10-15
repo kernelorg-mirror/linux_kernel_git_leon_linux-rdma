@@ -1980,6 +1980,10 @@ static int rvt_post_one_wr(struct rvt_qp *qp,
 	if (ret < 0)
 		return ret;
 	cplen = ret;
+	if (qp->allowed_ops == IB_OPCODE_UD &&
+	    ibah_to_rvtah(ud_wr(wr)->ah)->smi &&
+	    qp->ibqp.qp_type != IB_QPT_SMI)
+		return -EINVAL;
 
 	/*
 	 * Local operations include fast register and local invalidate.

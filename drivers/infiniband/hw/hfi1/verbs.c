@@ -1474,7 +1474,8 @@ u8 ah_to_sc(struct ib_device *ibdev, struct rdma_ah_attr *ah)
 	return ibp->sl_to_sc[rdma_ah_get_sl(ah)];
 }
 
-static int hfi1_check_ah(struct ib_device *ibdev, struct rdma_ah_attr *ah_attr)
+static int hfi1_check_ah(struct ib_device *ibdev, struct rdma_ah_attr *ah_attr,
+			 bool smi)
 {
 	struct hfi1_ibport *ibp;
 	struct hfi1_pportdata *ppd;
@@ -1494,6 +1495,9 @@ static int hfi1_check_ah(struct ib_device *ibdev, struct rdma_ah_attr *ah_attr)
 	sl = rdma_ah_get_sl(ah_attr);
 	if (sl >= ARRAY_SIZE(ibp->sl_to_sc))
 		return -EINVAL;
+	/* SMI sends use SC15/VL15 independently of the data SL mapping. */
+	if (smi)
+		return 0;
 	sl = array_index_nospec(sl, ARRAY_SIZE(ibp->sl_to_sc));
 
 	sc5 = ibp->sl_to_sc[sl];
@@ -1513,8 +1517,8 @@ static void hfi1_notify_new_ah(struct ib_device *ibdev,
 	struct rdma_ah_attr *attr = &ah->attr;
 
 	/*
-	 * Do not trust reading anything from rvt_ah at this point as it is not
-	 * done being setup. We can however modify things which we need to set.
+	 * Rdmavt has initialized the attributes and SMI identity. Normalize
+	 * the provider attributes and initialize the derived VL and MTU.
 	 */
 
 	ibp = to_iport(ibdev, rdma_ah_get_port_num(ah_attr));
@@ -1523,7 +1527,7 @@ static void hfi1_notify_new_ah(struct ib_device *ibdev,
 	hfi1_update_ah_attr(ibdev, attr);
 	hfi1_make_opa_lid(attr);
 	dd = dd_from_ppd(ppd);
-	ah->vl = sc_to_vlt(dd, sc5);
+	ah->vl = ah->smi ? 15 : sc_to_vlt(dd, sc5);
 	if (ah->vl < num_vls || ah->vl == 15)
 		ah->log_pmtu = ilog2(dd->vld[ah->vl].mtu);
 }

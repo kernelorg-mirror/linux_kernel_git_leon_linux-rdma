@@ -164,6 +164,7 @@ struct rvt_ah {
 	struct rdma_ah_attr attr;
 	u8 vl;
 	u8 log_pmtu;
+	bool smi;
 };
 
 /*
@@ -331,7 +332,8 @@ struct rvt_driver_provided {
 	unsigned (*free_all_qps)(struct rvt_dev_info *rdi);
 
 	/* Driver specific AH validation */
-	int (*check_ah)(struct ib_device *, struct rdma_ah_attr *);
+	int (*check_ah)(struct ib_device *ibdev, struct rdma_ah_attr *ah_attr,
+			bool smi);
 
 	/* Inform the driver a new AH has been created */
 	void (*notify_new_ah)(struct ib_device *, struct rdma_ah_attr *,

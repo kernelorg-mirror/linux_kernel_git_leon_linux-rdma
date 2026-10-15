@@ -3819,6 +3819,8 @@ static inline void ib_dealloc_pd(struct ib_pd *pd)
 enum rdma_create_ah_flags {
 	/* In a sleepable context */
 	RDMA_CREATE_AH_SLEEPABLE = BIT(0),
+	/* The handle will only be used with IB_QPT_SMI. */
+	RDMA_CREATE_AH_SMI = BIT(1),
 };
 
 /**
