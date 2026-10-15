@@ -1365,10 +1365,6 @@ int c4iw_post_srq_recv(struct ib_srq *ibsrq, const struct ib_recv_wr *wr,
 	srq = to_c4iw_srq(ibsrq);
 	spin_lock_irqsave(&srq->lock, flag);
 	num_wrs = t4_srq_avail(&srq->wq);
-	if (num_wrs == 0) {
-		spin_unlock_irqrestore(&srq->lock, flag);
-		return -ENOMEM;
-	}
 	while (wr) {
 		if (wr->num_sge > T4_MAX_RECV_SGE) {
 			err = -EINVAL;
