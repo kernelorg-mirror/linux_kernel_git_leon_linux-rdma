@@ -185,37 +185,69 @@ static enum hrtimer_restart iptfs_drop_timer(struct hrtimer *me);
 /* ================= */
 
 #ifdef TRACEPOINTS_ENABLED
-static u32 __trace_ip_proto(struct iphdr *iph)
+static u32 __trace_ip_proto(const struct sk_buff *skb, int *thoff)
 {
-	if (iph->version == 4)
+	struct ipv6hdr ip6buf;
+	const struct ipv6hdr *ip6h;
+	struct iphdr ipbuf;
+	const struct iphdr *iph;
+	int offset = skb_network_offset(skb);
+
+	if (thoff)
+		*thoff = -1;
+	if (offset < 0)
+		return 0;
+	iph = skb_header_pointer(skb, offset, sizeof(ipbuf), &ipbuf);
+	if (!iph)
+		return 0;
+	if (iph->version == 4) {
+		if (iph->ihl < 5 || offset + iph->ihl * 4 > skb->len)
+			return 0;
+		if (thoff && !(iph->frag_off & htons(IP_OFFSET)))
+			*thoff = offset + iph->ihl * 4;
 		return iph->protocol;
-	return ((struct ipv6hdr *)iph)->nexthdr;
+	}
+	if (iph->version != 6)
+		return 0;
+	ip6h = skb_header_pointer(skb, offset, sizeof(ip6buf), &ip6buf);
+	if (!ip6h)
+		return 0;
+	if (thoff)
+		*thoff = offset + sizeof(ip6buf);
+	return ip6h->nexthdr;
 }
 
-static u32 __trace_ip_proto_seq(struct iphdr *iph)
+static u32 __trace_ip_proto_seq(const struct sk_buff *skb)
 {
-	void *nexthdr;
-	u32 protocol = 0;
+	__be32 seq;
+	__be16 value;
+	int offset;
+	u32 protocol;
 
-	if (iph->version == 4) {
-		nexthdr = (void *)(iph + 1);
-		protocol = iph->protocol;
-	} else if (iph->version == 6) {
-		nexthdr = (void *)(((struct ipv6hdr *)(iph)) + 1);
-		protocol = ((struct ipv6hdr *)(iph))->nexthdr;
-	}
+	protocol = __trace_ip_proto(skb, &offset);
+	if (offset < 0)
+		return 0;
 	switch (protocol) {
 	case IPPROTO_ICMP:
-		return ntohs(((struct icmphdr *)nexthdr)->un.echo.sequence);
+		offset += offsetof(struct icmphdr, un.echo.sequence);
+		break;
 	case IPPROTO_ICMPV6:
-		return ntohs(((struct icmp6hdr *)nexthdr)->icmp6_sequence);
+		offset += offsetof(struct icmp6hdr, icmp6_sequence);
+		break;
 	case IPPROTO_TCP:
-		return ntohl(((struct tcphdr *)nexthdr)->seq);
+		offset += offsetof(struct tcphdr, seq);
+		if (skb_copy_bits(skb, offset, &seq, sizeof(seq)))
+			return 0;
+		return ntohl(seq);
 	case IPPROTO_UDP:
-		return ntohs(((struct udphdr *)nexthdr)->source);
+		offset += offsetof(struct udphdr, source);
+		break;
 	default:
 		return 0;
 	}
+	if (skb_copy_bits(skb, offset, &value, sizeof(value)))
+		return 0;
+	return ntohs(value);
 }
 #endif /*TRACEPOINTS_ENABLED*/
 
@@ -2117,8 +2149,11 @@ static int iptfs_first_skb(struct sk_buff **skbp, struct xfrm_iptfs_data *xtfs, 
 	/* The opportunity for HW offload has ended */
 	if (skb->ip_summed == CHECKSUM_PARTIAL) {
 		err = skb_checksum_help(skb);
-		if (err)
+		if (err) {
+			XFRM_INC_STATS(xs_net(xtfs->x), LINUX_MIB_XFRMOUTERROR);
+			kfree_skb(skb);
 			return err;
+		}
 	}
 
 	/* We've split gso up before queuing */
@@ -2215,10 +2250,11 @@ static void iptfs_output_queued(struct xfrm_state *x, struct sk_buff_head *list)
 		skb->protocol = x->outer_mode.family == AF_INET ? htons(ETH_P_IP) :
 								  htons(ETH_P_IPV6);
 
-		if (skb->len > mtu && xtfs->cfg.dont_frag) {
+		if (!mtu || (skb->len > mtu && xtfs->cfg.dont_frag)) {
 			/* We handle this case before enqueueing so we are only
 			 * here b/c MTU changed after we enqueued before we
-			 * dequeued, just drop these.
+			 * dequeued, just drop these. An MTU with no payload room
+			 * cannot make progress even when fragmentation is enabled.
 			 */
 			XFRM_INC_STATS(xs_net(x), LINUX_MIB_XFRMOUTERROR);
 
@@ -2495,12 +2531,18 @@ static int iptfs_prepare_output(struct xfrm_state *x, struct sk_buff *skb)
 static u32 __iptfs_get_inner_mtu(struct xfrm_state *x, int outer_mtu)
 {
 	struct crypto_aead *aead;
-	u32 blksize;
+	u32 blksize, overhead, payload, trailer;
 
 	aead = x->data;
 	blksize = ALIGN(crypto_aead_blocksize(aead), 4);
-	return ((outer_mtu - x->props.header_len - crypto_aead_authsize(aead)) &
-		~(blksize - 1)) - 2;
+	/* The IPTFS header is encrypted together with the inner payload. */
+	overhead = x->props.header_len - x->props.enc_hdr_len +
+		   crypto_aead_authsize(aead);
+	if (outer_mtu <= 0 || outer_mtu <= overhead)
+		return 0;
+	payload = (outer_mtu - overhead) & ~(blksize - 1);
+	trailer = x->props.enc_hdr_len + 2;
+	return payload > trailer ? payload - trailer : 0;
 }
 
 /**
@@ -2517,7 +2559,8 @@ static u32 iptfs_get_inner_mtu(struct xfrm_state *x, int outer_mtu)
 	/* If not dont-frag we have no MTU */
 	if (!xtfs->cfg.dont_frag)
 		return x->outer_mode.family == AF_INET ? IP_MAX_MTU : IP6_MAX_MTU;
-	return __iptfs_get_inner_mtu(x, outer_mtu);
+	/* A zero dst MTU means unspecified and falls back to the path MTU. */
+	return max(__iptfs_get_inner_mtu(x, outer_mtu), 1U);
 }
 
 /**

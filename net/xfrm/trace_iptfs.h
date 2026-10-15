@@ -83,8 +83,8 @@ DECLARE_EVENT_CLASS(iptfs_ingress_preq_event,
 				   __entry->data_len = skb->data_len;
 				   __entry->queue_size =
 					xtfs->cfg.max_queue_size - xtfs->queue_size;
-				   __entry->proto = __trace_ip_proto(ip_hdr(skb));
-				   __entry->proto_seq = __trace_ip_proto_seq(ip_hdr(skb));
+				   __entry->proto = __trace_ip_proto(skb, NULL);
+				   __entry->proto_seq = __trace_ip_proto_seq(skb);
 				   __entry->pmtu = pmtu;
 				   __entry->was_gso = was_gso;
 			    ),
@@ -120,8 +120,8 @@ DECLARE_EVENT_CLASS(iptfs_ingress_postq_event,
 				   __entry->data_len = skb->data_len;
 				   __entry->mtu = mtu;
 				   __entry->blkoff = blkoff;
-				   __entry->proto = iph ? __trace_ip_proto(iph) : 0;
-				   __entry->proto_seq = iph ? __trace_ip_proto_seq(iph) : 0;
+				   __entry->proto = iph ? __trace_ip_proto(skb, NULL) : 0;
+				   __entry->proto_seq = iph ? __trace_ip_proto_seq(skb) : 0;
 			    ),
 		    TP_printk("INGRPSTQ: skb=%p len=%u data_len=%u mtu=%u blkoff=%u proto=%u proto_seq=%u",
 			      __entry->skb, __entry->skb_len, __entry->data_len, __entry->mtu,
