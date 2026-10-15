@@ -2246,28 +2246,13 @@ int rvt_post_srq_recv(struct ib_srq *ibsrq, const struct ib_recv_wr *wr,
 }
 
 /*
- * rvt used the internal kernel struct as part of its ABI, for now make sure
- * the kernel struct does not change layout. FIXME: rvt should never cast the
- * user struct to a kernel struct.
- */
-static struct ib_sge *rvt_cast_sge(struct rvt_wqe_sge *sge)
-{
-	BUILD_BUG_ON(offsetof(struct ib_sge, addr) !=
-		     offsetof(struct rvt_wqe_sge, addr));
-	BUILD_BUG_ON(offsetof(struct ib_sge, length) !=
-		     offsetof(struct rvt_wqe_sge, length));
-	BUILD_BUG_ON(offsetof(struct ib_sge, lkey) !=
-		     offsetof(struct rvt_wqe_sge, lkey));
-	return (struct ib_sge *)sge;
-}
-
-/*
  * Validate a RWQE and fill in the SGE state.
  * Return 1 if OK.
  */
-static int init_sge(struct rvt_qp *qp, struct rvt_rwqe *wqe)
+static int init_sge(struct rvt_qp *qp, struct rvt_rwqe *wqe, u8 max_sge)
 {
-	int i, j, ret;
+	u8 num_sge = READ_ONCE(wqe->num_sge);
+	int i, j = 0, ret;
 	struct ib_wc wc;
 	struct rvt_lkey_table *rkt;
 	struct rvt_pd *pd;
@@ -2279,16 +2264,23 @@ static int init_sge(struct rvt_qp *qp, struct rvt_rwqe *wqe)
 	ss = &qp->r_sge;
 	ss->sg_list = qp->r_sg_list;
 	qp->r_len = 0;
-	for (i = j = 0; i < wqe->num_sge; i++) {
-		if (wqe->sg_list[i].length == 0)
+	if (num_sge > max_sge)
+		goto bad_lkey;
+	for (i = 0; i < num_sge; i++) {
+		struct ib_sge sge = {
+			.addr = READ_ONCE(wqe->sg_list[i].addr),
+			.length = READ_ONCE(wqe->sg_list[i].length),
+			.lkey = READ_ONCE(wqe->sg_list[i].lkey),
+		};
+
+		if (sge.length == 0)
 			continue;
 		/* Check LKEY */
 		ret = rvt_lkey_ok(rkt, pd, j ? &ss->sg_list[j - 1] : &ss->sge,
-				  NULL, rvt_cast_sge(&wqe->sg_list[i]),
-				  IB_ACCESS_LOCAL_WRITE);
+				  NULL, &sge, IB_ACCESS_LOCAL_WRITE);
 		if (unlikely(ret <= 0))
 			goto bad_lkey;
-		qp->r_len += wqe->sg_list[i].length;
+		qp->r_len += sge.length;
 		j++;
 	}
 	ss->num_sge = j;
@@ -2409,13 +2401,13 @@ int rvt_get_rwqe(struct rvt_qp *qp, bool wr_id_only)
 		RDMA_WRITE_UAPI_ATOMIC(wq->tail, tail);
 	else
 		kwq->tail = tail;
-	if (!wr_id_only && !init_sge(qp, wqe)) {
+	kwq->count--;
+	if (!wr_id_only && !init_sge(qp, wqe, rq->max_sge)) {
 		ret = -1;
 		goto unlock;
 	}
 	qp->r_wr_id = wqe->wr_id;
 
-	kwq->count--;
 	ret = 1;
 	set_bit(RVT_R_WRID_VALID, &qp->r_aflags);
 	if (handler) {

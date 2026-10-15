@@ -210,12 +210,18 @@ int rvt_modify_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr,
 		p = tmp_rq.kwq->curr_wq;
 		while (tail != head) {
 			struct rvt_rwqe *wqe;
+			u8 num_sge;
 			int i;
 
 			wqe = rvt_get_rwqe_ptr(&srq->rq, tail);
+			num_sge = READ_ONCE(wqe->num_sge);
+			if (num_sge > srq->rq.max_sge) {
+				ret = -EINVAL;
+				goto bail_unlock;
+			}
 			p->wr_id = wqe->wr_id;
-			p->num_sge = wqe->num_sge;
-			for (i = 0; i < wqe->num_sge; i++)
+			p->num_sge = num_sge;
+			for (i = 0; i < num_sge; i++)
 				p->sg_list[i] = wqe->sg_list[i];
 			n++;
 			p = (struct rvt_rwqe *)((char *)p + sz);
