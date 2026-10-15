@@ -348,8 +348,12 @@ int rvt_resize_cq(struct ib_cq *ibcq, unsigned int cqe, struct ib_udata *udata)
 	struct rvt_cq_wc *old_u_wc = NULL;
 	struct rvt_k_cq_wc *k_wc = NULL;
 	struct rvt_k_cq_wc *old_k_wc = NULL;
+	struct rvt_mmap_info *ip = NULL, *old_ip = NULL;
 
 	if (cqe > rdi->dparms.props.max_cqe)
+		return -EINVAL;
+	/* A resize cannot change the queue's userspace/kernel storage kind. */
+	if (!!READ_ONCE(cq->ip) != !!(udata && udata->outlen >= sizeof(__u64)))
 		return -EINVAL;
 
 	/*
@@ -370,9 +374,14 @@ int rvt_resize_cq(struct ib_cq *ibcq, unsigned int cqe, struct ib_udata *udata)
 	}
 	/* Check that we can write the offset to mmap. */
 	if (udata && udata->outlen >= sizeof(__u64)) {
-		__u64 offset = 0;
+		ip = rvt_create_mmap_info(rdi, sz, udata, u_wc);
+		if (IS_ERR(ip)) {
+			ret = PTR_ERR(ip);
+			ip = NULL;
+			goto bail_free;
+		}
 
-		ret = ib_respond_udata(udata, offset);
+		ret = ib_copy_to_udata(udata, &ip->offset, sizeof(ip->offset));
 		if (ret)
 			goto bail_free;
 	}
@@ -419,6 +428,9 @@ int rvt_resize_cq(struct ib_cq *ibcq, unsigned int cqe, struct ib_udata *udata)
 		RDMA_WRITE_UAPI_ATOMIC(u_wc->head, n);
 		RDMA_WRITE_UAPI_ATOMIC(u_wc->tail, 0);
 		cq->queue = u_wc;
+		old_ip = cq->ip;
+		WRITE_ONCE(cq->ip, ip);
+		rvt_replace_mmap_info(rdi, old_ip, ip);
 	} else {
 		k_wc->head = n;
 		k_wc->tail = 0;
@@ -426,38 +438,17 @@ int rvt_resize_cq(struct ib_cq *ibcq, unsigned int cqe, struct ib_udata *udata)
 	}
 	spin_unlock_irq(&cq->lock);
 
-	if (u_wc)
-		vfree(old_u_wc);
+	if (old_ip)
+		kref_put(&old_ip->ref, rvt_release_mmap_info);
 	else
 		vfree(old_k_wc);
-
-	if (cq->ip) {
-		struct rvt_mmap_info *ip = cq->ip;
-
-		rvt_update_mmap_info(rdi, ip, sz, u_wc);
-
-		/*
-		 * Return the offset to mmap.
-		 * See rvt_mmap() for details.
-		 */
-		if (udata && udata->outlen >= sizeof(__u64)) {
-			ret = ib_copy_to_udata(udata, &ip->offset,
-					       sizeof(ip->offset));
-			if (ret)
-				return ret;
-		}
-
-		spin_lock_irq(&rdi->pending_lock);
-		if (list_empty(&ip->pending_mmaps))
-			list_add(&ip->pending_mmaps, &rdi->pending_mmaps);
-		spin_unlock_irq(&rdi->pending_lock);
-	}
 
 	return 0;
 
 bail_unlock:
 	spin_unlock_irq(&cq->lock);
 bail_free:
+	kfree(ip);
 	vfree(u_wc);
 	vfree(k_wc);
 
@@ -484,7 +475,7 @@ int rvt_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *entry)
 	u32 tail;
 
 	/* The kernel can only poll a kernel completion queue */
-	if (cq->ip)
+	if (READ_ONCE(cq->ip))
 		return -EINVAL;
 
 	spin_lock_irqsave(&cq->lock, flags);

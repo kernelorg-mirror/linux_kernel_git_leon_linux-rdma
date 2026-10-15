@@ -99,16 +99,21 @@ int rvt_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 		/* Don't allow a mmap larger than the object. */
 		if (size > ip->size)
 			break;
+		/* Destruction may already be waiting for pending_lock. */
+		if (!kref_get_unless_zero(&ip->ref))
+			continue;
 
 		list_del_init(&ip->pending_mmaps);
 		spin_unlock_irq(&rdi->pending_lock);
 
 		ret = remap_vmalloc_range(vma, ip->obj, 0);
-		if (ret)
+		if (ret) {
+			kref_put(&ip->ref, rvt_release_mmap_info);
 			goto done;
+		}
 		vma->vm_ops = &rvt_vm_ops;
 		vma->vm_private_data = ip;
-		rvt_vma_open(vma);
+		/* Transfer the lookup reference to this VMA. */
 		goto done;
 	}
 	spin_unlock_irq(&rdi->pending_lock);
@@ -158,24 +163,20 @@ struct rvt_mmap_info *rvt_create_mmap_info(struct rvt_dev_info *rdi, u32 size,
 }
 
 /**
- * rvt_update_mmap_info - update a mem map
+ * rvt_replace_mmap_info - publish a replacement mapping generation
  * @rdi: rvt dev struct
- * @ip: mmap info pointer
- * @size: size to grow by
- * @obj: opaque pointer to cq, wq, etc.
+ * @old: mapping being retired
+ * @new: initialized replacement mapping
+ *
+ * The caller holds the queue lock and releases its old mapping reference
+ * after dropping that lock. Existing VMAs retain the old allocation.
  */
-void rvt_update_mmap_info(struct rvt_dev_info *rdi, struct rvt_mmap_info *ip,
-			  u32 size, void *obj)
+void rvt_replace_mmap_info(struct rvt_dev_info *rdi,
+			   struct rvt_mmap_info *old,
+			   struct rvt_mmap_info *new)
 {
-	size = PAGE_ALIGN(size);
-
-	spin_lock_irq(&rdi->mmap_offset_lock);
-	if (rdi->mmap_offset == 0)
-		rdi->mmap_offset = MMAP_OFFSET_START;
-	ip->offset = rdi->mmap_offset;
-	rdi->mmap_offset += PAGE_SIZE;
-	spin_unlock_irq(&rdi->mmap_offset_lock);
-
-	ip->size = size;
-	ip->obj = obj;
+	spin_lock(&rdi->pending_lock);
+	list_del_init(&old->pending_mmaps);
+	list_add(&new->pending_mmaps, &rdi->pending_mmaps);
+	spin_unlock(&rdi->pending_lock);
 }

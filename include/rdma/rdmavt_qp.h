@@ -923,10 +923,14 @@ struct rvt_qp_iter {
 static inline u32 ib_cq_tail(struct ib_cq *send_cq)
 {
 	struct rvt_cq *cq = ibcq_to_rvtcq(send_cq);
+	unsigned long flags;
+	u32 tail;
 
-	return ibcq_to_rvtcq(send_cq)->ip ?
-	       RDMA_READ_UAPI_ATOMIC(cq->queue->tail) :
-	       ibcq_to_rvtcq(send_cq)->kqueue->tail;
+	spin_lock_irqsave(&cq->lock, flags);
+	tail = cq->ip ? RDMA_READ_UAPI_ATOMIC(cq->queue->tail) :
+		       cq->kqueue->tail;
+	spin_unlock_irqrestore(&cq->lock, flags);
+	return tail;
 }
 
 /**
@@ -939,10 +943,14 @@ static inline u32 ib_cq_tail(struct ib_cq *send_cq)
 static inline u32 ib_cq_head(struct ib_cq *send_cq)
 {
 	struct rvt_cq *cq = ibcq_to_rvtcq(send_cq);
+	unsigned long flags;
+	u32 head;
 
-	return ibcq_to_rvtcq(send_cq)->ip ?
-	       RDMA_READ_UAPI_ATOMIC(cq->queue->head) :
-	       ibcq_to_rvtcq(send_cq)->kqueue->head;
+	spin_lock_irqsave(&cq->lock, flags);
+	head = cq->ip ? RDMA_READ_UAPI_ATOMIC(cq->queue->head) :
+		       cq->kqueue->head;
+	spin_unlock_irqrestore(&cq->lock, flags);
+	return head;
 }
 
 /**

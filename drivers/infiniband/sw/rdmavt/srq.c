@@ -128,19 +128,21 @@ int rvt_modify_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr,
 	struct rvt_srq *srq = ibsrq_to_rvtsrq(ibsrq);
 	struct rvt_dev_info *dev = ib_to_rvt(ibsrq->device);
 	struct rvt_rq tmp_rq = {};
+	struct rvt_mmap_info *ip = NULL;
 	__u64 offset_addr;
 	int ret = 0;
 
 	if (attr_mask & IB_SRQ_MAX_WR) {
 		struct rvt_krwq *okwq = NULL;
 		struct rvt_rwq *owq = NULL;
+		struct rvt_mmap_info *old_ip = NULL;
 		struct rvt_rwqe *p;
 		u32 sz, size, n, head, tail;
 
 		/* Check that the requested sizes are below the limits. */
-		if ((attr->max_wr > dev->dparms.props.max_srq_wr) ||
-		    ((attr_mask & IB_SRQ_LIMIT) ?
-		     attr->srq_limit : srq->limit) > attr->max_wr)
+		if (attr->max_wr > dev->dparms.props.max_srq_wr ||
+		    ((attr_mask & IB_SRQ_LIMIT) &&
+		     attr->srq_limit > attr->max_wr))
 			return -EINVAL;
 		sz = sizeof(struct rvt_rwqe) +
 			srq->rq.max_sge * sizeof(struct ib_sge);
@@ -148,9 +150,19 @@ int rvt_modify_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr,
 		if (rvt_alloc_rq(&tmp_rq, size * sz, dev->dparms.node,
 				 udata))
 			return -ENOMEM;
+		if (READ_ONCE(srq->ip)) {
+			ip = rvt_create_mmap_info(dev,
+						  sizeof(struct rvt_rwq) + size * sz,
+						  udata, tmp_rq.wq);
+			if (IS_ERR(ip)) {
+				ret = PTR_ERR(ip);
+				ip = NULL;
+				goto bail_free;
+			}
+		}
 		/* Check that we can write the offset to mmap. */
 		if (udata && udata->inlen >= sizeof(__u64)) {
-			__u64 offset = 0;
+			__u64 offset = ip ? ip->offset : 0;
 
 			ret = ib_copy_from_udata(&offset_addr, udata,
 						 sizeof(offset_addr));
@@ -163,7 +175,12 @@ int rvt_modify_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr,
 			}
 		}
 
-		spin_lock_irq(&srq->rq.kwq->c_lock);
+		spin_lock_irq(&srq->rq.lock);
+		if (!(attr_mask & IB_SRQ_LIMIT) && srq->limit > attr->max_wr) {
+			ret = -EINVAL;
+			goto bail_unlock;
+		}
+		okwq = srq->rq.kwq;
 		/*
 		 * validate head and tail pointer values and compute
 		 * the number of remaining WQEs.
@@ -173,7 +190,6 @@ int rvt_modify_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr,
 			head = RDMA_READ_UAPI_ATOMIC(owq->head);
 			tail = RDMA_READ_UAPI_ATOMIC(owq->tail);
 		} else {
-			okwq = srq->rq.kwq;
 			head = okwq->head;
 			tail = okwq->tail;
 		}
@@ -218,52 +234,32 @@ int rvt_modify_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr,
 		srq->rq.size = size;
 		if (attr_mask & IB_SRQ_LIMIT)
 			srq->limit = attr->srq_limit;
-		spin_unlock_irq(&srq->rq.kwq->c_lock);
-
-		vfree(owq);
-		kvfree(okwq);
-
-		if (srq->ip) {
-			struct rvt_mmap_info *ip = srq->ip;
-			struct rvt_dev_info *dev = ib_to_rvt(srq->ibsrq.device);
-			u32 s = sizeof(struct rvt_rwq) + size * sz;
-
-			rvt_update_mmap_info(dev, ip, s, tmp_rq.wq);
-
-			/*
-			 * Return the offset to mmap.
-			 * See rvt_mmap() for details.
-			 */
-			if (udata && udata->inlen >= sizeof(__u64)) {
-				if (copy_to_user(u64_to_user_ptr(offset_addr),
-						 &ip->offset,
-						 sizeof(ip->offset)))
-					return -EFAULT;
-			}
-
-			/*
-			 * Put user mapping info onto the pending list
-			 * unless it already is on the list.
-			 */
-			spin_lock_irq(&dev->pending_lock);
-			if (list_empty(&ip->pending_mmaps))
-				list_add(&ip->pending_mmaps,
-					 &dev->pending_mmaps);
-			spin_unlock_irq(&dev->pending_lock);
+		if (ip) {
+			old_ip = srq->ip;
+			WRITE_ONCE(srq->ip, ip);
+			rvt_replace_mmap_info(dev, old_ip, ip);
 		}
+		spin_unlock_irq(&srq->rq.lock);
+
+		if (old_ip)
+			kref_put(&old_ip->ref, rvt_release_mmap_info);
+		else
+			vfree(owq);
+		kvfree(okwq);
 	} else if (attr_mask & IB_SRQ_LIMIT) {
-		spin_lock_irq(&srq->rq.kwq->c_lock);
+		spin_lock_irq(&srq->rq.lock);
 		if (attr->srq_limit >= srq->rq.size)
 			ret = -EINVAL;
 		else
 			srq->limit = attr->srq_limit;
-		spin_unlock_irq(&srq->rq.kwq->c_lock);
+		spin_unlock_irq(&srq->rq.lock);
 	}
 	return ret;
 
 bail_unlock:
-	spin_unlock_irq(&srq->rq.kwq->c_lock);
+	spin_unlock_irq(&srq->rq.lock);
 bail_free:
+	kfree(ip);
 	rvt_free_rq(&tmp_rq);
 	return ret;
 }
@@ -278,10 +274,13 @@ bail_free:
 int rvt_query_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr)
 {
 	struct rvt_srq *srq = ibsrq_to_rvtsrq(ibsrq);
+	unsigned long flags;
 
+	spin_lock_irqsave(&srq->rq.lock, flags);
 	attr->max_wr = srq->rq.size - 1;
 	attr->max_sge = srq->rq.max_sge;
 	attr->srq_limit = srq->limit;
+	spin_unlock_irqrestore(&srq->rq.lock, flags);
 	return 0;
 }
 
@@ -300,6 +299,8 @@ int rvt_destroy_srq(struct ib_srq *ibsrq, struct ib_udata *udata)
 	spin_unlock(&dev->n_srqs_lock);
 	if (srq->ip)
 		kref_put(&srq->ip->ref, rvt_release_mmap_info);
+	else
+		vfree(srq->rq.wq);
 	kvfree(srq->rq.kwq);
 	return 0;
 }

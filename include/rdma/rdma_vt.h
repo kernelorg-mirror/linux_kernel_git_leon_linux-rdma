@@ -171,7 +171,8 @@ struct rvt_ah {
 /*
  * This structure is used by rvt_mmap() to validate an offset
  * when an mmap() request is made.  The vm_area_struct then uses
- * this as its vm_private_data.
+ * this as its vm_private_data. The mapping fields are immutable after
+ * publication; queue replacement allocates a new record and backing buffer.
  */
 struct rvt_mmap_info {
 	struct list_head pending_mmaps;

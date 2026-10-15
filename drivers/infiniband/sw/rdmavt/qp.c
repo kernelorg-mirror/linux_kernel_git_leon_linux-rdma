@@ -2219,13 +2219,13 @@ int rvt_post_srq_recv(struct ib_srq *ibsrq, const struct ib_recv_wr *wr,
 			return -EINVAL;
 		}
 
-		spin_lock_irqsave(&srq->rq.kwq->p_lock, flags);
+		spin_lock_irqsave(&srq->rq.lock, flags);
 		wq = srq->rq.kwq;
 		next = wq->head + 1;
 		if (next >= srq->rq.size)
 			next = 0;
 		if (next == READ_ONCE(wq->tail)) {
-			spin_unlock_irqrestore(&srq->rq.kwq->p_lock, flags);
+			spin_unlock_irqrestore(&srq->rq.lock, flags);
 			*bad_wr = wr;
 			return -ENOMEM;
 		}
@@ -2240,7 +2240,7 @@ int rvt_post_srq_recv(struct ib_srq *ibsrq, const struct ib_recv_wr *wr,
 		}
 		/* Make sure queue entry is written before the head index. */
 		smp_store_release(&wq->head, next);
-		spin_unlock_irqrestore(&srq->rq.kwq->p_lock, flags);
+		spin_unlock_irqrestore(&srq->rq.lock, flags);
 	}
 	return 0;
 }
@@ -2344,6 +2344,7 @@ static inline u32 get_rvt_head(struct rvt_rq *rq, void *ip)
 int rvt_get_rwqe(struct rvt_qp *qp, bool wr_id_only)
 {
 	unsigned long flags;
+	spinlock_t *lock;
 	struct rvt_rq *rq;
 	struct rvt_krwq *kwq = NULL;
 	struct rvt_rwq *wq;
@@ -2359,15 +2360,17 @@ int rvt_get_rwqe(struct rvt_qp *qp, bool wr_id_only)
 		srq = ibsrq_to_rvtsrq(qp->ibqp.srq);
 		handler = srq->ibsrq.event_handler;
 		rq = &srq->rq;
+		lock = &rq->lock;
 		ip = srq->ip;
 	} else {
 		srq = NULL;
 		handler = NULL;
 		rq = &qp->r_rq;
+		lock = &rq->kwq->c_lock;
 		ip = qp->ip;
 	}
 
-	spin_lock_irqsave(&rq->kwq->c_lock, flags);
+	spin_lock_irqsave(lock, flags);
 	if (!(ib_rvt_state_ops[qp->state] & RVT_PROCESS_RECV_OK)) {
 		ret = 0;
 		goto unlock;
@@ -2428,7 +2431,7 @@ int rvt_get_rwqe(struct rvt_qp *qp, bool wr_id_only)
 				struct ib_event ev;
 
 				srq->limit = 0;
-				spin_unlock_irqrestore(&rq->kwq->c_lock, flags);
+				spin_unlock_irqrestore(lock, flags);
 				ev.device = qp->ibqp.device;
 				ev.element.srq = qp->ibqp.srq;
 				ev.event = IB_EVENT_SRQ_LIMIT_REACHED;
@@ -2438,7 +2441,7 @@ int rvt_get_rwqe(struct rvt_qp *qp, bool wr_id_only)
 		}
 	}
 unlock:
-	spin_unlock_irqrestore(&rq->kwq->c_lock, flags);
+	spin_unlock_irqrestore(lock, flags);
 bail:
 	return ret;
 }
