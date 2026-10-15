@@ -337,12 +337,14 @@ static void send_trap(struct hfi1_ibport *ibp, struct trap_node *trap)
 			ah = hfi1_create_qp0_ah(ibp, ibp->rvp.sm_lid);
 			if (IS_ERR(ah)) {
 				spin_unlock_irqrestore(&ibp->rvp.lock, flags);
+				ib_free_send_mad(send_buf);
 				return;
 			}
 			send_buf->ah = ah;
 			ibp->rvp.sm_ah = ibah_to_rvtah(ah);
 		} else {
 			spin_unlock_irqrestore(&ibp->rvp.lock, flags);
+			ib_free_send_mad(send_buf);
 			return;
 		}
 	} else {
@@ -354,6 +356,7 @@ static void send_trap(struct hfi1_ibport *ibp, struct trap_node *trap)
 	 * bother sending it. This could happen for a retry.
 	 */
 	if (trap->repress) {
+		ibp->rvp.trap_lists[trap->data.generic_type & 0x0f].list_len--;
 		list_del(&trap->list);
 		spin_unlock_irqrestore(&ibp->rvp.lock, flags);
 		kfree(trap);
