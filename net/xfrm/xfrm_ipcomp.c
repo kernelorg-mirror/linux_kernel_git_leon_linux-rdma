@@ -265,19 +265,26 @@ static void ipcomp_output_done(void *data, int err)
 	struct ipcomp_req_extra *extra;
 	struct sk_buff *skb = data;
 	struct acomp_req *req;
+	struct net *net;
 
 	req = ipcomp_cb(skb)->req;
 	extra = acomp_request_extra(req);
+	net = xs_net(extra->x);
 
 	xfrm_output_resume(skb_to_full_sk(skb), skb,
 			   ipcomp_output_done2(extra->x, skb, err));
+	put_net(net);
 }
 
 static int ipcomp_compress(struct xfrm_state *x, struct sk_buff *skb)
 {
+	struct net *net = maybe_get_net(xs_net(x));
 	struct ip_comp_hdr *ipch __maybe_unused;
 	struct acomp_req *req;
 	int err;
+
+	if (!net)
+		return -ENETDOWN;
 
 	req = ipcomp_setup_req(x, skb, sizeof(*ipch),
 			       skb->len - sizeof(*ipch));
@@ -291,7 +298,9 @@ static int ipcomp_compress(struct xfrm_state *x, struct sk_buff *skb)
 		return err;
 
 out:
-	return ipcomp_output_done2(x, skb, err);
+	err = ipcomp_output_done2(x, skb, err);
+	put_net(net);
+	return err;
 }
 
 int ipcomp_output(struct xfrm_state *x, struct sk_buff *skb)

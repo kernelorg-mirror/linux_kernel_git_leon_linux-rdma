@@ -213,6 +213,7 @@ static void esp_output_done(void *data, int err)
 	struct xfrm_offload *xo = xfrm_offload(skb);
 	void *tmp;
 	struct xfrm_state *x;
+	struct net *net;
 
 	if (xo && (xo->flags & XFRM_DEV_RESUME)) {
 		struct sec_path *sp = skb_sec_path(skb);
@@ -222,6 +223,7 @@ static void esp_output_done(void *data, int err)
 		x = skb_dst(skb)->xfrm;
 	}
 
+	net = xs_net(x);
 	tmp = ESP_SKB_CB(skb)->tmp;
 	esp_ssg_unref(x, tmp, skb, false);
 	kfree(tmp);
@@ -230,7 +232,7 @@ static void esp_output_done(void *data, int err)
 		if (err) {
 			XFRM_INC_STATS(xs_net(x), LINUX_MIB_XFRMOUTSTATEPROTOERROR);
 			kfree_skb(skb);
-			return;
+			goto out;
 		}
 
 		skb_push(skb, skb->data - skb_mac_header(skb));
@@ -246,6 +248,8 @@ static void esp_output_done(void *data, int err)
 			xfrm_output_resume(skb_to_full_sk(skb), skb, err);
 		}
 	}
+out:
+	put_net(net);
 }
 
 /* Move ESP header back into place. */
@@ -510,12 +514,18 @@ int esp_output_tail(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *
 	int assoclen;
 	int extralen;
 	struct page *page;
+	struct net *net;
 	struct ip_esp_hdr *esph;
 	struct crypto_aead *aead;
 	struct aead_request *req;
 	struct scatterlist *sg, *dsg;
 	struct esp_output_extra *extra;
 	int err = -ENOMEM;
+
+	/* A socket-free skb and its XFRM state do not retain an active namespace. */
+	net = maybe_get_net(xs_net(x));
+	if (!net)
+		return -ENETDOWN;
 
 	assoclen = sizeof(struct ip_esp_hdr);
 	extralen = 0;
@@ -601,7 +611,8 @@ int esp_output_tail(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *
 
 	switch (err) {
 	case -EINPROGRESS:
-		goto error;
+		/* The callback owns the reference through the output continuation. */
+		return err;
 
 	case -ENOSPC:
 		err = NET_XMIT_DROP;
@@ -621,6 +632,7 @@ int esp_output_tail(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *
 error_free:
 	kfree(tmp);
 error:
+	put_net(net);
 	return err;
 }
 EXPORT_SYMBOL_GPL(esp_output_tail);

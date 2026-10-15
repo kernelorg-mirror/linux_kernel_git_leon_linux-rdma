@@ -120,6 +120,7 @@ static void ah_output_done(void *data, int err)
 	struct iphdr *iph;
 	struct sk_buff *skb = data;
 	struct xfrm_state *x = skb_dst(skb)->xfrm;
+	struct net *net = xs_net(x);
 	struct ah_data *ahp = x->data;
 	struct iphdr *top_iph = ip_hdr(skb);
 	struct ip_auth_hdr *ah = ip_auth_hdr(skb);
@@ -144,10 +145,12 @@ static void ah_output_done(void *data, int err)
 
 	kfree(AH_SKB_CB(skb)->tmp);
 	xfrm_output_resume(skb_to_full_sk(skb), skb, err);
+	put_net(net);
 }
 
 static int ah_output(struct xfrm_state *x, struct sk_buff *skb)
 {
+	struct net *net = maybe_get_net(xs_net(x));
 	int err;
 	int nfrags;
 	int ihl;
@@ -163,6 +166,9 @@ static int ah_output(struct xfrm_state *x, struct sk_buff *skb)
 	__be32 *seqhi;
 	int sglists = 0;
 	struct scatterlist *seqhisg;
+
+	if (!net)
+		return -ENETDOWN;
 
 	ahp = x->data;
 	ahash = ahp->ahash;
@@ -241,7 +247,7 @@ static int ah_output(struct xfrm_state *x, struct sk_buff *skb)
 	err = crypto_ahash_digest(req);
 	if (err) {
 		if (err == -EINPROGRESS)
-			goto out;
+			return err;
 
 		if (err == -ENOSPC)
 			err = NET_XMIT_DROP;
@@ -261,6 +267,7 @@ static int ah_output(struct xfrm_state *x, struct sk_buff *skb)
 out_free:
 	kfree(iph);
 out:
+	put_net(net);
 	return err;
 }
 
