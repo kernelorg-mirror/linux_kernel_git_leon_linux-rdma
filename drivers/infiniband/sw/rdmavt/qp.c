@@ -3049,6 +3049,8 @@ do_write:
 	case IB_WR_RDMA_READ:
 		if (unlikely(!(qp->qp_access_flags & IB_ACCESS_REMOTE_READ)))
 			goto inv_err;
+		if (!wqe->length)
+			goto send_comp;
 		if (unlikely(!rvt_rkey_ok(qp, &sqp->s_sge.sge, wqe->length,
 					  wqe->rdma_wr.remote_addr,
 					  wqe->rdma_wr.rkey,

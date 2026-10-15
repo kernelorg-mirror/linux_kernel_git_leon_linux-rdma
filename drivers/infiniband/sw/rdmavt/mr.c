@@ -689,8 +689,11 @@ static inline bool rvt_sge_adjacent(struct rvt_sge *last_sge,
 	if (last_sge && sge->lkey == last_sge->mr->lkey &&
 	    ((uint64_t)(last_sge->vaddr + last_sge->length) == sge->addr)) {
 		if (sge->lkey) {
-			if (unlikely((sge->addr - last_sge->mr->user_base +
-			      sge->length > last_sge->mr->length)))
+			u64 off = sge->addr - last_sge->mr->user_base;
+
+			if (unlikely(sge->addr < last_sge->mr->user_base ||
+				     off > last_sge->mr->length ||
+				     sge->length > last_sge->mr->length - off))
 				return false; /* overrun, caller will catch */
 		} else {
 			last_sge->length += sge->length;
@@ -768,7 +771,7 @@ int rvt_lkey_ok(struct rvt_lkey_table *rkt, struct rvt_pd *pd,
 
 	off = sge->addr - mr->user_base;
 	if (unlikely(sge->addr < mr->user_base ||
-		     off + sge->length > mr->length ||
+		     off > mr->length || sge->length > mr->length - off ||
 		     (mr->access_flags & acc) != acc))
 		goto bail_unref;
 	rcu_read_unlock();
@@ -875,7 +878,8 @@ int rvt_rkey_ok(struct rvt_qp *qp, struct rvt_sge *sge,
 		goto bail_unref;
 
 	off = vaddr - mr->iova;
-	if (unlikely(vaddr < mr->iova || off + len > mr->length ||
+	if (unlikely(vaddr < mr->iova || off > mr->length ||
+		     len > mr->length - off ||
 		     (mr->access_flags & acc) == 0))
 		goto bail_unref;
 	rcu_read_unlock();
