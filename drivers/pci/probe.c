@@ -1738,24 +1738,27 @@ static void set_pcie_cxl(struct pci_dev *dev)
 
 }
 
-static void set_pcie_untrusted(struct pci_dev *dev)
+static void pci_set_default_trust_policy(struct pci_dev *dev)
 {
-	struct pci_dev *parent = pci_upstream_bridge(dev);
+	struct pci_dev *parent = pci_physfn(dev);
+
+	if (dev->dev.trust_policy != DEVICE_TRUST_POLICY_DEFAULT)
+		return;
+
+	if (parent == dev)
+		parent = pci_upstream_bridge(dev);
 
 	if (!parent)
 		return;
-	/*
-	 * If the upstream bridge is untrusted we treat this device as
-	 * untrusted as well.
-	 */
-	if (parent->untrusted) {
-		dev->untrusted = true;
+
+	if (device_policy_is_adversarial(&parent->dev)) {
+		dev->dev.trust_policy = DEVICE_TRUST_POLICY_ADVERSARY;
 		return;
 	}
 
 	if (arch_pci_dev_is_removable(dev)) {
-		pci_dbg(dev, "marking as untrusted\n");
-		dev->untrusted = true;
+		pci_dbg(dev, "setting adversarial trust policy\n");
+		dev->dev.trust_policy = DEVICE_TRUST_POLICY_ADVERSARY;
 	}
 }
 
@@ -2082,7 +2085,7 @@ int pci_setup_device(struct pci_dev *dev)
 
 	set_pcie_cxl(dev);
 
-	set_pcie_untrusted(dev);
+	pci_set_default_trust_policy(dev);
 	device_trust_init(&dev->dev);
 
 	/* "Unknown power state" */
