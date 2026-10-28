@@ -1,0 +1,13 @@
+What:		/sys/bus/.../drivers_probe
+Date:		February 2007
+Contact:	driver-core@lists.linux.dev
+Description:
+		(WO) Writing a device name requests driver attachment on this
+		bus, even when drivers_autoprobe is disabled. A successful
+		write does not guarantee that a driver bound. The device's
+		driver link reports the result.
+
+		EAGAIN means attachment was deferred before the driver's probe
+		callback, for example while a supplier or the device itself
+		is not ready. ENODEV means the device was not found. Other
+		attachment errors return EINVAL.
