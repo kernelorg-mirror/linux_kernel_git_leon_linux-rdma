@@ -1259,6 +1259,31 @@ Kernel parameters
 	dell_smm_hwmon.fan_max=
 			[HW] Maximum configurable fan speed.
 
+	device_trust=	[KNL]
+			Set requested device trust policy before driver probing,
+			including for drivers built into the kernel.
+			Format: <bus>:<device>=<policy>[,...]
+			The bus and device names must match exactly, as in
+			/sys/bus/<bus>/devices/<device>. The first colon separates
+			the bus name; further colons belong to the device name.
+			Policies are default, disabled, adversary, and full.
+			Entries override bus-initialized requested policy;
+			unlisted devices retain their existing policy.
+			The last entry for a device wins. If specified more than
+			once, the last valid list replaces all earlier lists.
+			Malformed lists are warned about and ignored in full.
+			Names containing whitespace, control characters, commas,
+			equals signs, or double quotes cannot be specified.
+			Rules also apply to devices added after boot.
+			Explicit disabled blocks early binding but permits later
+			authorization by writing adversary or full to trust_policy.
+			Rejected disabled probes leave this opportunity intact.
+			Authorization fixes the policy before probing; adversary
+			or full at boot permits early probes without attestation.
+			Example:
+			device_trust=pci:0000:01:00.0=adversary,pci:0000:02:00.0=disabled
+			See Documentation/driver-api/driver-model/device-trust.rst.
+
 	dfltcc=		[HW,S390]
 			Format: { on | off | def_only | inf_only | always }
 			on:       s390 zlib hardware support for compression on
