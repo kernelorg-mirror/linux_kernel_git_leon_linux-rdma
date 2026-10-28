@@ -9,6 +9,7 @@ Driver Model
    bus
    design-patterns
    device
+   device-trust
    devres
    driver
    overview
