@@ -545,13 +545,21 @@ int device_bind_driver(struct device *dev)
 {
 	int ret;
 
+	if (dev->bus && dev->bus->trust_resolve)
+		return -EOPNOTSUPP;
+
+	ret = device_trust_prepare(dev, dev->driver);
+	if (ret)
+		return ret;
+
 	ret = driver_sysfs_add(dev);
 	if (!ret) {
 		device_links_force_bind(dev);
 		driver_bound(dev);
-	}
-	else
+	} else {
 		bus_notify(dev, BUS_NOTIFY_DRIVER_NOT_BOUND);
+		device_trust_clear(dev);
+	}
 	return ret;
 }
 EXPORT_SYMBOL_GPL(device_bind_driver);
@@ -679,6 +687,14 @@ static int really_probe(struct device *dev, const struct device_driver *drv)
 	}
 
 re_probe:
+	ret = device_trust_prepare(dev, drv);
+	if (ret) {
+		device_links_no_driver(dev);
+		/* Report it like a probe error so a scan tries the next driver. */
+		ret = -ret;
+		goto done;
+	}
+
 	device_set_driver(dev, drv);
 
 	/* If using pinctrl, bind pins now before probing */
@@ -745,6 +761,7 @@ re_probe:
 		if (dev->bus && dev->bus->dma_cleanup)
 			dev->bus->dma_cleanup(dev);
 		device_unbind_cleanup(dev);
+		device_trust_clear(dev);
 
 		goto re_probe;
 	}
@@ -771,6 +788,7 @@ sysfs_failed:
 pinctrl_bind_failed:
 	device_links_no_driver(dev);
 	device_unbind_cleanup(dev);
+	device_trust_clear(dev);
 done:
 	return ret;
 }
@@ -1405,6 +1423,7 @@ static void __device_release_driver(struct device *dev, struct device *parent)
 			dev->bus->dma_cleanup(dev);
 
 		device_unbind_cleanup(dev);
+		device_trust_clear(dev);
 		device_links_driver_cleanup(dev);
 
 		klist_remove(&dev->p->knode_driver);
