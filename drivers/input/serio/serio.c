@@ -81,28 +81,10 @@ static int serio_match_port(const struct serio_device_id *ids, struct serio *ser
 
 static int serio_bind_driver(struct serio *serio, struct serio_driver *drv)
 {
-	int error;
+	if (!serio_match_port(drv->id_table, serio))
+		return 0;
 
-	if (serio_match_port(drv->id_table, serio)) {
-
-		serio->dev.driver = &drv->driver;
-		if (serio_connect_driver(serio, drv)) {
-			serio->dev.driver = NULL;
-			return -ENODEV;
-		}
-
-		error = device_bind_driver(&serio->dev);
-		if (error) {
-			dev_warn(&serio->dev,
-				 "device_bind_driver() failed for %s (%s) and %s, error: %d\n",
-				 serio->phys, serio->name,
-				 drv->description, error);
-			serio_disconnect_driver(serio);
-			serio->dev.driver = NULL;
-			return error;
-		}
-	}
-	return 0;
+	return device_driver_attach(&drv->driver, &serio->dev);
 }
 
 static void serio_find_driver(struct serio *serio)
