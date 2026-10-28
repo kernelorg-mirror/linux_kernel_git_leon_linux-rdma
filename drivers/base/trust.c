@@ -23,6 +23,7 @@ void device_trust_init_state(struct device *dev)
 		DEVICE_TRUST_WAITING : DEVICE_TRUST_SELECTABLE;
 	dev->p->trust_initialized = true;
 }
+EXPORT_SYMBOL_IF_KUNIT(device_trust_init_state);
 
 static bool device_trust_policy_matches(enum device_trust_policy policy,
 					enum device_trust_level level)
