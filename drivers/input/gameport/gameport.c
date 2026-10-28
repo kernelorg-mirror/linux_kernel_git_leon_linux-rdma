@@ -214,26 +214,7 @@ static void gameport_run_poll_handler(struct timer_list *t)
 
 static int gameport_bind_driver(struct gameport *gameport, struct gameport_driver *drv)
 {
-	int error;
-
-	gameport->dev.driver = &drv->driver;
-	if (drv->connect(gameport, drv)) {
-		gameport->dev.driver = NULL;
-		return -ENODEV;
-	}
-
-	error = device_bind_driver(&gameport->dev);
-	if (error) {
-		dev_warn(&gameport->dev,
-			 "device_bind_driver() failed for %s (%s) and %s, error: %d\n",
-			gameport->phys, gameport->name,
-			drv->description, error);
-		drv->disconnect(gameport);
-		gameport->dev.driver = NULL;
-		return error;
-	}
-
-	return 0;
+	return device_driver_attach(&drv->driver, &gameport->dev);
 }
 
 static void gameport_find_driver(struct gameport *gameport)
