@@ -2264,6 +2264,7 @@ free_interfaces:
 	 */
 	for (i = 0; i < nintf; ++i) {
 		struct usb_interface *intf = cp->interface[i];
+		struct device_driver *claimant;
 
 		if (intf->dev.of_node &&
 		    !of_device_is_available(intf->dev.of_node)) {
@@ -2277,7 +2278,14 @@ free_interfaces:
 			dev_name(&intf->dev), configuration,
 			intf->cur_altsetting->desc.bInterfaceNumber);
 		device_enable_async_suspend(&intf->dev);
+		claimant = intf->dev.driver;
+		if (claimant && !try_module_get(claimant->owner))
+			claimant = NULL;
 		ret = device_add(&intf->dev);
+		if (!ret && claimant && !intf->dev.driver)
+			usb_driver_release_refused_claim(intf, claimant);
+		if (claimant)
+			module_put(claimant->owner);
 		if (ret != 0) {
 			dev_err(&dev->dev, "device_add(%s) --> %d\n",
 				dev_name(&intf->dev), ret);

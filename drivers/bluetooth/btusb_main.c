@@ -2993,10 +2993,13 @@ static int btusb_recv_event_realtek(struct hci_dev *hdev, struct sk_buff *skb)
 	return hci_recv_frame(hdev, skb);
 }
 
+/* usb_lock_device_for_reset() gives up after one second of contention */
+#define BTUSB_MTK_ISO_LOCK_TRIES	5
+
 static void btusb_mtk_claim_iso_intf(struct btusb_data *data)
 {
 	struct btmtk_data *btmtk_data;
-	int err;
+	int err, i;
 
 	if (!data->hdev)
 		return;
@@ -3011,22 +3014,37 @@ static void btusb_mtk_claim_iso_intf(struct btusb_data *data)
 	}
 
 	/*
-	 * The function usb_driver_claim_interface() is documented to need
-	 * locks held if it's not called from a probe routine. The code here
-	 * is called from the hci_power_on workqueue, so grab the lock.
+	 * Disconnect holds the device lock while draining this setup work, so
+	 * the lock must be taken with disconnect-aware acquisition. Hold a PM
+	 * reference so the device cannot suspend first. A slow interface
+	 * registration can keep the lock past the one-second limit of a single
+	 * attempt, so retry a few times, but not without bound: a teardown
+	 * that holds the lock may be waiting for this work.
 	 */
-	device_lock(&btmtk_data->isopkt_intf->dev);
-	err = usb_driver_claim_interface(&btusb_driver,
-					 btmtk_data->isopkt_intf, data);
-	device_unlock(&btmtk_data->isopkt_intf->dev);
+	err = usb_autopm_get_interface(data->intf);
+	if (!err) {
+		for (i = 0; i < BTUSB_MTK_ISO_LOCK_TRIES; i++) {
+			err = usb_lock_device_for_reset(data->udev, data->intf);
+			if (err != -EBUSY)
+				break;
+		}
+		if (!err) {
+			err = usb_driver_claim_interface(&btusb_driver,
+							 btmtk_data->isopkt_intf,
+							 data);
+			if (!err) {
+				init_usb_anchor(&btmtk_data->isopkt_anchor);
+				set_bit(BTMTK_ISOPKT_OVER_INTR,
+					&btmtk_data->flags);
+			}
+			usb_unlock_device(data->udev);
+		}
+		usb_autopm_put_interface(data->intf);
+	}
 	if (err < 0) {
 		btmtk_data->isopkt_intf = NULL;
 		bt_dev_err(data->hdev, "Failed to claim iso interface: %d", err);
-		return;
 	}
-
-	set_bit(BTMTK_ISOPKT_OVER_INTR, &btmtk_data->flags);
-	init_usb_anchor(&btmtk_data->isopkt_anchor);
 }
 
 static void btusb_mtk_release_iso_intf(struct hci_dev *hdev)

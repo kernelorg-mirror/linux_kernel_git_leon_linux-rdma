@@ -584,8 +584,11 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 	/* if interface was already added, bind now; else let
 	 * the future device_add() bind it, bypassing probe()
 	 */
-	if (device_is_registered(dev))
+	if (device_is_registered(dev)) {
+		device_lock(dev);
 		retval = device_bind_driver(dev);
+		device_unlock(dev);
+	}
 
 	if (retval) {
 		dev->driver = NULL;
@@ -648,6 +651,26 @@ void usb_driver_release_interface(struct usb_driver *driver,
 	}
 }
 EXPORT_SYMBOL_GPL(usb_driver_release_interface);
+
+/*
+ * The driver core refused to bind an interface that a sibling claimed before
+ * it was registered, and dropped the claim. Let the claimant release the
+ * interface instead of operating it with a bound interface but no driver.
+ */
+void usb_driver_release_refused_claim(struct usb_interface *iface,
+				      struct device_driver *claimant)
+{
+	struct device *dev = &iface->dev;
+
+	device_lock(dev);
+	if (!dev->driver && iface->condition == USB_INTERFACE_BOUND) {
+		dev->driver = claimant;
+		usb_unbind_interface(dev);
+		dev_set_drvdata(dev, NULL);
+		dev->driver = NULL;
+	}
+	device_unlock(dev);
+}
 
 /* returns 0 if no match, 1 if match */
 int usb_match_device(struct usb_device *dev, const struct usb_device_id *id)
