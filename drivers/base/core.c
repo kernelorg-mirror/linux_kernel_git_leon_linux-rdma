@@ -3688,6 +3688,7 @@ int device_add(struct device *dev)
 	if (error)
 		goto name_error;
 
+	device_trust_init(dev);
 	device_trust_init_state(dev);
 
 	pr_debug("device: '%s': %s\n", dev_name(dev), __func__);
