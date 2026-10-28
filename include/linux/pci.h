@@ -491,14 +491,6 @@ struct pci_dev {
 	unsigned int	is_thunderbolt:1;	/* Thunderbolt controller */
 	unsigned int	is_cxl:1;               /* Compute Express Link (CXL) */
 	/*
-	 * Devices marked being untrusted are the ones that can potentially
-	 * execute DMA attacks and similar. They are typically connected
-	 * through external ports such as Thunderbolt but not limited to
-	 * that. When an IOMMU is enabled they should be getting full
-	 * mappings to make sure they cannot access arbitrary memory.
-	 */
-	unsigned int	untrusted:1;
-	/*
 	 * Info from the platform, e.g., ACPI or device tree, may mark a
 	 * device as "external-facing".  An external-facing device is
 	 * itself internal but devices downstream from it are external.
@@ -616,6 +608,28 @@ static inline struct pci_dev *to_pci_dev(const struct device *dev)
 {
 	return container_of(dev, struct pci_dev, dev);
 }
+
+static inline bool
+pci_dev_default_is_restricted(const struct pci_dev *pdev)
+{
+	enum device_trust_policy policy = READ_ONCE(pdev->dev.trust_policy);
+
+	return policy == DEVICE_TRUST_POLICY_DISABLED ||
+	       policy == DEVICE_TRUST_POLICY_ADVERSARY;
+}
+
+static inline bool pci_dev_ats_permitted(const struct pci_dev *pdev)
+{
+	enum device_trust_level level = device_get_trust_level(&pdev->dev);
+	enum device_trust_policy policy = READ_ONCE(pdev->dev.trust_policy);
+
+	if (level == DEVICE_TRUST_DISABLED)
+		return policy != DEVICE_TRUST_POLICY_ADVERSARY &&
+		       policy != DEVICE_TRUST_POLICY_DISABLED;
+
+	return level == DEVICE_TRUST_FULL;
+}
+
 #define for_each_pci_dev(d) while ((d = pci_get_device(PCI_ANY_ID, PCI_ANY_ID, d)) != NULL)
 #define for_each_pci_dev_reverse(d) \
 	while ((d = pci_get_device_reverse(PCI_ANY_ID, PCI_ANY_ID, d)) != NULL)
