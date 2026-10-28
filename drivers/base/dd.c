@@ -1047,6 +1047,25 @@ static void __device_driver_lock(struct device *dev, struct device *parent)
 }
 
 /*
+ * __device_driver_trylock - __device_driver_lock() without sleeping
+ *
+ * Returns true if the locks were taken.
+ */
+static bool __device_driver_trylock(struct device *dev, struct device *parent)
+{
+	if (dev->type && dev->type->need_parent_lock && parent) {
+		if (!device_trylock(parent))
+			return false;
+		if (!device_trylock(dev)) {
+			device_unlock(parent);
+			return false;
+		}
+		return true;
+	}
+	return device_trylock(dev);
+}
+
+/*
  * __device_driver_unlock - release locks needed to manipulate dev->drv
  * @dev: Device we will update driver info for
  * @parent: Parent device. Needed if the device type requires parent lock
@@ -1195,19 +1214,17 @@ void device_initial_probe(struct device *dev)
 	subsys_put(sp);
 }
 
-/**
- * device_driver_attach - attach a specific driver to a specific device
- * @drv: Driver to attach
- * @dev: Device to attach it to
- *
- * Manually attach driver to a device. Will acquire both @dev lock and
- * @dev->parent lock if needed. Returns 0 on success, -ERR on failure.
- */
-int device_driver_attach(const struct device_driver *drv, struct device *dev)
+static int __device_driver_attach(const struct device_driver *drv,
+				  struct device *dev, bool trylock)
 {
 	int ret;
 
-	__device_driver_lock(dev, dev->parent);
+	if (trylock) {
+		if (!__device_driver_trylock(dev, dev->parent))
+			return -EBUSY;
+	} else {
+		__device_driver_lock(dev, dev->parent);
+	}
 	ret = __driver_probe_device(drv, dev);
 	__device_driver_unlock(dev, dev->parent);
 
@@ -1218,7 +1235,35 @@ int device_driver_attach(const struct device_driver *drv, struct device *dev)
 		return -EAGAIN;
 	return ret;
 }
+
+/**
+ * device_driver_attach - attach a specific driver to a specific device
+ * @drv: Driver to attach
+ * @dev: Device to attach it to
+ *
+ * Manually attach driver to a device. Will acquire both @dev lock and
+ * @dev->parent lock if needed. Returns 0 on success, -ERR on failure.
+ */
+int device_driver_attach(const struct device_driver *drv, struct device *dev)
+{
+	return __device_driver_attach(drv, dev, false);
+}
 EXPORT_SYMBOL_GPL(device_driver_attach);
+
+/**
+ * device_driver_try_attach - attach a specific driver without waiting for locks
+ * @drv: Driver to attach
+ * @dev: Device to attach it to
+ *
+ * Like device_driver_attach(), for callers that hold a lock which the holder
+ * of the @dev or @dev->parent lock may wait for. Returns -EBUSY, before any
+ * probing, if one of those locks is contended.
+ */
+int device_driver_try_attach(const struct device_driver *drv, struct device *dev)
+{
+	return __device_driver_attach(drv, dev, true);
+}
+EXPORT_SYMBOL_GPL(device_driver_try_attach);
 
 static void __driver_attach_async_helper(void *_dev, async_cookie_t cookie)
 {
