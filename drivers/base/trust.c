@@ -88,10 +88,10 @@ int device_trust_prepare(struct device *dev, const struct device_driver *drv)
 	if (level != DEVICE_TRUST_ADVERSARY && level != DEVICE_TRUST_FULL)
 		return -EINVAL;
 	if (dev->p->trust_state == DEVICE_TRUST_COMMITTED &&
-	    dev->p->trust_committed_level != level)
+	    dev->trust_committed_level != level)
 		return -EINVAL;
 
-	dev->p->trust_committed_level = level;
+	WRITE_ONCE(dev->trust_committed_level, level);
 	dev->p->trust_state = DEVICE_TRUST_COMMITTED;
 	WRITE_ONCE(dev->trust_level, level);
 	return 0;
@@ -118,6 +118,19 @@ enum device_trust_level device_get_trust_level(const struct device *dev)
 	return READ_ONCE(dev->trust_level);
 }
 EXPORT_SYMBOL_GPL(device_get_trust_level);
+
+/**
+ * device_get_committed_trust_level - Return the lifetime trust commitment
+ * @dev: device to inspect
+ *
+ * Return: %DEVICE_TRUST_DISABLED before admission, otherwise the level fixed
+ * before driver setup. The commitment survives setup failure and unbind.
+ */
+enum device_trust_level device_get_committed_trust_level(const struct device *dev)
+{
+	return READ_ONCE(dev->trust_committed_level);
+}
+EXPORT_SYMBOL_GPL(device_get_committed_trust_level);
 
 /**
  * device_is_adversarial - Test whether a device is operated as an adversary

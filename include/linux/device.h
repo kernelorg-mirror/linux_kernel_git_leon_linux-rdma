@@ -699,6 +699,8 @@ enum struct_device_flags {
  * @trust_policy: Requested operating policy, resolved before driver probe.
  * @trust_level: Active trust level while a driver is bound, see
  *		device_get_trust_level().
+ * @trust_committed_level: Operating level retained across bind transactions,
+ *		see device_get_committed_trust_level().
  * @flags:	DEV_FLAG_XXX flags. Use atomic bitfield operations to modify.
  *
  * At the lowest level, every device in a Linux system is represented by an
@@ -804,6 +806,7 @@ struct device {
 	enum device_removable	removable;
 	enum device_trust_policy trust_policy;
 	enum device_trust_level trust_level;
+	enum device_trust_level trust_committed_level;
 
 	DECLARE_BITMAP(flags, DEV_FLAG_COUNT);
 };

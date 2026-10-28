@@ -42,6 +42,7 @@ void device_trust_init(struct device *dev);
 bool device_trust_may_claim(const struct device *dev,
 			    const struct device_driver *drv);
 enum device_trust_level device_get_trust_level(const struct device *dev);
+enum device_trust_level device_get_committed_trust_level(const struct device *dev);
 bool device_is_adversarial(const struct device *dev);
 
 #endif /* _DEVICE_TRUST_H_ */
