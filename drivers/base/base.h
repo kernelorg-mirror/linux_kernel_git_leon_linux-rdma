@@ -113,7 +113,6 @@ enum device_trust_state {
  *			   dev_err_probe() for later retrieval via debugfs
  * @device: pointer back to the struct device that this structure is
  *	    associated with.
- * @trust_committed_level: operating level retained across bind transactions
  * @trust_state: policy admission state
  * @trust_initialized: bus and boot policy have initialized admission state
  * @trust_policy_override: explicit policy prevents deferred driver boot policy
@@ -133,7 +132,6 @@ struct device_private {
 	const struct device_driver *async_driver;
 	char *deferred_probe_reason;
 	struct device *device;
-	enum device_trust_level trust_committed_level;
 	enum device_trust_state trust_state;
 	u8 trust_initialized:1;
 	u8 trust_policy_override:1;
