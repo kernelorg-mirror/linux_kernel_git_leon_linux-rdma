@@ -1,0 +1,51 @@
+What:		/sys/devices/.../trust
+Date:		September 2026
+Contact:	driver-core@lists.linux.dev
+Description:
+		(RO) The active trust level for the device. The values are
+		"disabled", "adversary", and "full". Driver core resolves
+		the level before DMA configuration and probe, and retains it
+		through removal and DMA cleanup. Outside a bind transaction
+		the level is "disabled". This does not imply that policy is
+		writable or that the device has never operated.
+
+What:		/sys/devices/.../trust_policy
+Date:		September 2026
+Contact:	driver-core@lists.linux.dev
+Description:
+		(RW) The requested trust policy for the device. The initial
+		value may be selected by the bus before the device is
+		registered; otherwise it is "default". The policy is resolved
+		to an active trust level before the device is probed.
+
+		The values are "default", "disabled", "adversary", and
+		"full". "default" lets the bus select the active trust level.
+		"disabled" prevents a functional driver from binding.
+		"adversary" requests operation with the restrictions that the
+		bus and DMA layers can enforce for a potentially malicious
+		device; it does not isolate DMA by itself. "full" requests
+		normal operation.
+
+		Before an operating level is committed, policy may change
+		freely until "disabled" is selected. Explicit "disabled"
+		blocks binding while allowing a later write of "adversary" or
+		"full". Repeated rejected probes preserve this opportunity.
+		Authorization immediately fixes the requested policy.
+		Returning to "default" or "disabled", or selecting another
+		mode, fails.
+
+		Successful resolution to an allowed level commits policy
+		and operating level before driver or DMA setup. Both remain
+		fixed for the device object's lifetime, including through
+		failed or deferred probes, unbind, reset, and driver reload.
+		Later binds must resolve to the same level, including when
+		the policy is "default". A resolver error or disabled result
+		before commitment leaves the policy's writability unchanged.
+
+		For a live device, writing the existing value succeeds
+		without changing state. Other forbidden writes fail with
+		EBUSY; invalid strings fail with EINVAL. Removed devices
+		reject writes with ENODEV. Writes do not trigger probing or
+		attestation.
+		Queued probes may proceed immediately after authorization,
+		so userspace must complete verification before granting it.

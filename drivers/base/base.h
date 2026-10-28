@@ -180,6 +180,12 @@ void bus_remove_driver(struct device_driver *drv);
 void device_release_driver_internal(struct device *dev, const struct device_driver *drv,
 				    struct device *parent);
 
+extern const struct attribute_group device_trust_attr_group;
+
+#if IS_ENABLED(CONFIG_KUNIT)
+int device_trust_set_policy(struct device *dev, enum device_trust_policy policy);
+#endif
+
 /* All active trust level transitions are serialized by the device lock. */
 void device_trust_init_state(struct device *dev);
 int device_trust_prepare(struct device *dev, const struct device_driver *drv);
