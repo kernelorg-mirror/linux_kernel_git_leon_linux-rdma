@@ -1912,7 +1912,9 @@ int phy_attach_direct(struct net_device *dev, struct phy_device *phydev,
 	struct device *d = &phydev->mdio.dev;
 	struct module *ndev_owner = NULL;
 	struct module *drv_owner;
+	struct device_driver *drv;
 	int irq = phydev->irq;
+	bool bind_genphy;
 	int err;
 
 	/* For Ethernet device drivers that register their own MDIO bus, we
@@ -1939,16 +1941,16 @@ int phy_attach_direct(struct net_device *dev, struct phy_device *phydev,
 	/* Assume that if there is no driver, that it doesn't
 	 * exist, and we should use the genphy driver.
 	 */
-	if (!d->driver) {
+	drv = d->driver;
+	bind_genphy = !drv;
+	if (bind_genphy) {
 		if (phydev->is_c45)
-			d->driver = &genphy_c45_driver.mdiodrv.driver;
+			drv = &genphy_c45_driver.mdiodrv.driver;
 		else
-			d->driver = &genphy_driver.mdiodrv.driver;
-
-		phydev->is_genphy_driven = 1;
+			drv = &genphy_driver.mdiodrv.driver;
 	}
 
-	drv_owner = d->driver->owner;
+	drv_owner = drv->owner;
 	if (!try_module_get(drv_owner)) {
 		phydev_err(phydev, "failed to get the device driver module\n");
 		err = -EIO;
@@ -1956,11 +1958,20 @@ int phy_attach_direct(struct net_device *dev, struct phy_device *phydev,
 	}
 	phydev->drv_owner = drv_owner;
 
-	if (phydev->is_genphy_driven) {
-		err = d->driver->probe(d);
-		if (err >= 0)
-			err = device_bind_driver(d);
-
+	if (bind_genphy) {
+		/*
+		 * RTNL is held, and a concurrent bind of a specific driver may
+		 * wait for it with the device lock held. Never wait for that
+		 * lock, and let the caller retry.
+		 */
+		err = device_driver_try_attach(drv, d);
+		if (err == -EBUSY) {
+			/* Another bind owns the PHY, so nothing was probed here. */
+			irq = phydev->irq;
+			err = -EPROBE_DEFER;
+		} else if (err == -EAGAIN) {
+			err = -EPROBE_DEFER;
+		}
 		if (err)
 			goto error_module_put;
 	}
@@ -2071,8 +2082,6 @@ error_module_put:
 	module_put(phydev->drv_owner);
 	phydev->drv_owner = NULL;
 	phydev->irq = irq;
-	phydev->is_genphy_driven = 0;
-	d->driver = NULL;
 error_put_device:
 	put_device(d);
 	if (ndev_owner != bus->owner)
@@ -3813,6 +3822,8 @@ static int phy_probe(struct device *dev)
 	int err = 0;
 
 	phydev->drv = phydrv;
+	phydev->is_genphy_driven = phydrv == &genphy_driver ||
+				 phydrv == &genphy_c45_driver;
 
 	/* Disable the interrupt if the PHY doesn't support it
 	 * but the interrupt is still a valid one
@@ -3949,6 +3960,7 @@ out_remove:
 out_reset:
 	/* Re-assert the reset signal on error */
 	phy_device_reset(phydev, 1);
+	phydev->is_genphy_driven = 0;
 
 	return err;
 }
@@ -3977,6 +3989,7 @@ static int phy_remove(struct device *dev)
 	phy_device_reset(phydev, 1);
 
 	phydev->drv = NULL;
+	phydev->is_genphy_driven = 0;
 
 	return 0;
 }
