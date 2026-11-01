@@ -11,6 +11,9 @@
 
 #include "base.h"
 
+static void device_trust_init_driver_policy(struct device *dev,
+					   const struct device_driver *drv);
+
 void device_trust_init_state(struct device *dev)
 {
 	if (dev->p->trust_initialized)
@@ -64,10 +67,11 @@ int device_trust_prepare(struct device *dev, const struct device_driver *drv)
 	int ret;
 
 	device_lock_assert(dev);
-	policy = dev->trust_policy;
 
 	if (WARN_ON_ONCE(READ_ONCE(dev->trust_level) != DEVICE_TRUST_DISABLED))
 		return -EBUSY;
+	device_trust_init_driver_policy(dev, drv);
+	policy = dev->trust_policy;
 	if (policy == DEVICE_TRUST_POLICY_DISABLED)
 		return -EPERM;
 	if (dev->bus && dev->bus->trust_resolve)
@@ -170,7 +174,7 @@ VISIBLE_IF_KUNIT int device_trust_set_policy(struct device *dev,
 		goto unlock;
 	}
 	if (policy == dev->trust_policy)
-		goto unlock;
+		goto set_policy;
 
 	/* A driver that claimed the device before registration was not admitted. */
 	if (READ_ONCE(dev->driver)) {
@@ -195,7 +199,9 @@ VISIBLE_IF_KUNIT int device_trust_set_policy(struct device *dev,
 		ret = -EBUSY;
 		goto unlock;
 	}
+set_policy:
 	WRITE_ONCE(dev->trust_policy, policy);
+	dev->p->trust_policy_override = true;
 unlock:
 	device_unlock(dev);
 	return ret;
@@ -229,10 +235,11 @@ const struct attribute_group device_trust_attr_group = {
 };
 
 static const char *device_trust_cmdline __ro_after_init;
+static const char *device_trust_driver_cmdline __ro_after_init;
 
-VISIBLE_IF_KUNIT int device_trust_parse_cmdline(const char *options,
-						const struct device *dev,
-						enum device_trust_policy *policy)
+static int device_trust_parse_policy(const char *options, const char *target_bus,
+				     const char *target_name,
+				     enum device_trust_policy *policy)
 {
 	enum device_trust_policy selected = DEVICE_TRUST_POLICY_DEFAULT;
 	const char *entry = options;
@@ -267,11 +274,11 @@ VISIBLE_IF_KUNIT int device_trust_parse_cmdline(const char *options,
 		if (i == ARRAY_SIZE(device_trust_policy_names))
 			return -EINVAL;
 
-		if (dev && dev->bus && dev_name(dev) &&
-		    strlen(dev->bus->name) == bus_end - entry &&
-		    !strncmp(dev->bus->name, entry, bus_end - entry) &&
-		    strlen(dev_name(dev)) == level - name &&
-		    !strncmp(dev_name(dev), name, level - name)) {
+		if (target_bus && target_name &&
+		    strlen(target_bus) == bus_end - entry &&
+		    !strncmp(target_bus, entry, bus_end - entry) &&
+		    strlen(target_name) == level - name &&
+		    !strncmp(target_name, name, level - name)) {
 			selected = i;
 			matched = true;
 		}
@@ -285,7 +292,85 @@ VISIBLE_IF_KUNIT int device_trust_parse_cmdline(const char *options,
 		*policy = selected;
 	return matched;
 }
+
+VISIBLE_IF_KUNIT int device_trust_parse_cmdline(const char *options,
+						const struct device *dev,
+						enum device_trust_policy *policy)
+{
+	return device_trust_parse_policy(options, dev && dev->bus ? dev->bus->name : NULL,
+					 dev ? dev_name(dev) : NULL, policy);
+}
 EXPORT_SYMBOL_IF_KUNIT(device_trust_parse_cmdline);
+
+VISIBLE_IF_KUNIT void device_trust_apply_driver_policy(struct device *dev,
+						     const struct device_driver *drv,
+						     const char *options)
+{
+	enum device_trust_policy policy;
+
+	device_lock_assert(dev);
+	if (!options || !drv || dev->p->trust_policy_override ||
+	    (dev->p->trust_state != DEVICE_TRUST_SELECTABLE &&
+	     dev->p->trust_state != DEVICE_TRUST_WAITING))
+		return;
+
+	if (device_trust_parse_policy(options, drv->bus ? drv->bus->name : NULL,
+				      drv->name, &policy) <= 0)
+		return;
+
+	WRITE_ONCE(dev->trust_policy, policy);
+	dev->p->trust_state = policy == DEVICE_TRUST_POLICY_DISABLED ?
+		DEVICE_TRUST_WAITING : DEVICE_TRUST_SELECTABLE;
+	dev->p->trust_policy_override = true;
+}
+EXPORT_SYMBOL_IF_KUNIT(device_trust_apply_driver_policy);
+
+static void device_trust_init_driver_policy(struct device *dev,
+					   const struct device_driver *drv)
+{
+	device_trust_apply_driver_policy(dev, drv, device_trust_driver_cmdline);
+}
+
+/*
+ * A matching driver rule is applied, together with its admission state, when
+ * the device is registered, so only the device's own policy rejects a claim.
+ */
+VISIBLE_IF_KUNIT bool device_trust_claim_allowed(const struct device *dev,
+						 const struct device_driver *drv,
+						 const char *device_options,
+						 const char *driver_options)
+{
+	enum device_trust_policy policy = READ_ONCE(dev->trust_policy);
+	bool device_rule = device_options &&
+		device_trust_parse_cmdline(device_options, dev, &policy) > 0;
+
+	if (!device_rule && driver_options && drv &&
+	    device_trust_parse_policy(driver_options,
+				      drv->bus ? drv->bus->name : NULL,
+				      drv->name, &policy) > 0)
+		return true;
+
+	return policy != DEVICE_TRUST_POLICY_DISABLED;
+}
+EXPORT_SYMBOL_IF_KUNIT(device_trust_claim_allowed);
+
+/**
+ * device_trust_may_claim - Test whether a driver may claim an unregistered device
+ * @dev: device with its bus, name, and boot policy set
+ * @drv: driver that claims the device
+ *
+ * A driver can claim a device before it is registered, which skips the bind
+ * attempt that admits it. Reject a claim that the device's own policy forbids.
+ *
+ * Return: False if the policy of @dev rejects the claim.
+ */
+bool device_trust_may_claim(const struct device *dev,
+			    const struct device_driver *drv)
+{
+	return device_trust_claim_allowed(dev, drv, device_trust_cmdline,
+					  device_trust_driver_cmdline);
+}
+EXPORT_SYMBOL_GPL(device_trust_may_claim);
 
 static int __init device_trust_setup(char *str)
 {
@@ -300,6 +385,18 @@ static int __init device_trust_setup(char *str)
 }
 __setup("device_trust=", device_trust_setup);
 
+static int __init device_trust_driver_setup(char *str)
+{
+	if (device_trust_parse_policy(str, NULL, NULL, NULL) < 0) {
+		pr_warn("device_trust: ignoring invalid driver policy list '%s'\n", str);
+		return 1;
+	}
+
+	device_trust_driver_cmdline = str;
+	return 1;
+}
+__setup("device_trust.driver=", device_trust_driver_setup);
+
 /**
  * device_trust_init - Apply boot policy before registration or bus policy use
  * @dev: unregistered device with its bus, name, and default policy set
@@ -309,8 +406,9 @@ void device_trust_init(struct device *dev)
 	if (dev->p && dev->p->trust_initialized)
 		return;
 
-	if (device_trust_cmdline)
-		device_trust_parse_cmdline(device_trust_cmdline, dev,
-					   &dev->trust_policy);
+	if (device_trust_cmdline &&
+	    device_trust_parse_cmdline(device_trust_cmdline, dev,
+				       &dev->trust_policy) > 0 && dev->p)
+		dev->p->trust_policy_override = true;
 }
 EXPORT_SYMBOL_GPL(device_trust_init);

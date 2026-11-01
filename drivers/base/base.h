@@ -116,6 +116,7 @@ enum device_trust_state {
  * @trust_committed_level: operating level retained across bind transactions
  * @trust_state: policy admission state
  * @trust_initialized: bus and boot policy have initialized admission state
+ * @trust_policy_override: explicit policy prevents deferred driver boot policy
  * @dead: This device is currently either in the process of or has been
  *	  removed from the system. Any asynchronous events scheduled for this
  *	  device should exit without taking any action.
@@ -135,6 +136,7 @@ struct device_private {
 	enum device_trust_level trust_committed_level;
 	enum device_trust_state trust_state;
 	u8 trust_initialized:1;
+	u8 trust_policy_override:1;
 	u8 dead:1;
 };
 #define to_device_private_parent(obj)	\
@@ -186,6 +188,13 @@ extern const struct attribute_group device_trust_attr_group;
 int device_trust_set_policy(struct device *dev, enum device_trust_policy policy);
 int device_trust_parse_cmdline(const char *options, const struct device *dev,
 			       enum device_trust_policy *policy);
+void device_trust_apply_driver_policy(struct device *dev,
+				      const struct device_driver *drv,
+				      const char *options);
+bool device_trust_claim_allowed(const struct device *dev,
+				const struct device_driver *drv,
+				const char *device_options,
+				const char *driver_options);
 #endif
 
 /* All active trust level transitions are serialized by the device lock. */

@@ -5,6 +5,7 @@
 #include <linux/types.h>
 
 struct device;
+struct device_driver;
 
 /**
  * enum device_trust_level - active trust level for a device
@@ -38,6 +39,8 @@ enum device_trust_policy {
 };
 
 void device_trust_init(struct device *dev);
+bool device_trust_may_claim(const struct device *dev,
+			    const struct device_driver *drv);
 enum device_trust_level device_get_trust_level(const struct device *dev);
 bool device_is_adversarial(const struct device *dev);
 
