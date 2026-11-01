@@ -249,6 +249,7 @@ const struct attribute_group device_trust_attr_group = {
 
 static const char *device_trust_cmdline __ro_after_init;
 static const char *device_trust_driver_cmdline __ro_after_init;
+static enum device_trust_policy device_trust_default_policy __ro_after_init;
 
 static int device_trust_parse_policy(const char *options, const char *target_bus,
 				     const char *target_name,
@@ -410,18 +411,44 @@ static int __init device_trust_driver_setup(char *str)
 }
 __setup("device_trust.driver=", device_trust_driver_setup);
 
+static int __init device_trust_default_setup(char *str)
+{
+	int policy = match_string(device_trust_policy_names,
+				  ARRAY_SIZE(device_trust_policy_names), str);
+
+	if (policy < 0) {
+		pr_warn("device_trust: ignoring invalid default policy '%s'\n", str);
+		return 1;
+	}
+
+	device_trust_default_policy = policy;
+	return 1;
+}
+__setup("device_trust.default=", device_trust_default_setup);
+
+VISIBLE_IF_KUNIT void device_trust_apply_boot_policy(struct device *dev,
+						   enum device_trust_policy policy,
+						   const char *options)
+{
+	if (dev->p && dev->p->trust_initialized)
+		return;
+
+	if (policy != DEVICE_TRUST_POLICY_DEFAULT)
+		dev->trust_policy = policy;
+	if (options &&
+	    device_trust_parse_cmdline(options, dev, &dev->trust_policy) > 0 &&
+	    dev->p)
+		dev->p->trust_policy_override = true;
+}
+EXPORT_SYMBOL_IF_KUNIT(device_trust_apply_boot_policy);
+
 /**
  * device_trust_init - Apply boot policy before registration or bus policy use
  * @dev: unregistered device with its bus, name, and default policy set
  */
 void device_trust_init(struct device *dev)
 {
-	if (dev->p && dev->p->trust_initialized)
-		return;
-
-	if (device_trust_cmdline &&
-	    device_trust_parse_cmdline(device_trust_cmdline, dev,
-				       &dev->trust_policy) > 0 && dev->p)
-		dev->p->trust_policy_override = true;
+	device_trust_apply_boot_policy(dev, device_trust_default_policy,
+				       device_trust_cmdline);
 }
 EXPORT_SYMBOL_GPL(device_trust_init);

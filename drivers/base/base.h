@@ -193,6 +193,9 @@ bool device_trust_claim_allowed(const struct device *dev,
 				const struct device_driver *drv,
 				const char *device_options,
 				const char *driver_options);
+void device_trust_apply_boot_policy(struct device *dev,
+				    enum device_trust_policy policy,
+				    const char *options);
 #endif
 
 /* All active trust level transitions are serialized by the device lock. */
