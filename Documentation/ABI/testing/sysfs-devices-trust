@@ -19,6 +19,11 @@ Description:
 		to an active trust level before the device is probed.
 		A matching device_trust= kernel command-line entry overrides
 		the initial requested policy before registration.
+		Otherwise, device_trust.driver= can initialize policy on the
+		first binding attempt with a matching driver rule. A successful
+		policy write, including the existing value, suppresses this
+		deferred initialization. Driver rules do not change an existing
+		authorization or commitment and apply at most once per device.
 
 		The values are "default", "disabled", "adversary", and
 		"full". "default" lets the bus select the active trust level.

@@ -1269,6 +1269,7 @@ Kernel parameters
 			Policies are default, disabled, adversary, and full.
 			Entries override bus-initialized requested policy;
 			unlisted devices retain their existing policy.
+			Per-device entries take precedence over device_trust.driver.
 			The last entry for a device wins. If specified more than
 			once, the last valid list replaces all earlier lists.
 			Malformed lists are warned about and ignored in full.
@@ -1283,6 +1284,27 @@ Kernel parameters
 			Example:
 			device_trust=pci:0000:01:00.0=adversary,pci:0000:02:00.0=disabled
 			See Documentation/driver-api/driver-model/device-trust.rst.
+
+	device_trust.driver=
+			[KNL] Set initial device trust policy by driver name,
+			including for drivers built into the kernel.
+			Format: <bus>:<driver>=<policy>[,...]
+			Names match exactly as in /sys/bus/<bus>/drivers/<driver>.
+			Policies are default, disabled, adversary, and full.
+			The name restrictions and repeated-list rules are the same
+			as device_trust=. Module aliases and wildcards are not
+			expanded. Rules remain available for hotplug and modules.
+			The first binding attempt with a matching rule applies it
+			once, before trust resolution and driver or DMA setup.
+			A per-device device_trust= entry or any successful write
+			to trust_policy, even of its current value, takes precedence.
+			Rules never replace an existing authorization or commitment.
+			A rejected disabled attempt leaves the device disabled until
+			userspace authorizes it, including across driver changes.
+			Driver rules apply after bus discovery and do not reconfigure
+			IOMMU domains. Adversary operation needs suitable existing
+			DMA configuration; see the device trust documentation.
+			Example: device_trust.driver=pci:e1000=disabled,pci:nvme=full
 
 	dfltcc=		[HW,S390]
 			Format: { on | off | def_only | inf_only | always }
