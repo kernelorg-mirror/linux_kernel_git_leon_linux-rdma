@@ -1267,9 +1267,8 @@ Kernel parameters
 			/sys/bus/<bus>/devices/<device>. The first colon separates
 			the bus name; further colons belong to the device name.
 			Policies are default, disabled, adversary, and full.
-			Entries override bus-initialized requested policy;
-			unlisted devices retain their existing policy.
-			Per-device entries take precedence over device_trust.driver.
+			Entries override device_trust.default, device_trust.driver,
+			and bus-initialized policy, regardless of option order.
 			The last entry for a device wins. If specified more than
 			once, the last valid list replaces all earlier lists.
 			Malformed lists are warned about and ignored in full.
@@ -1283,6 +1282,24 @@ Kernel parameters
 			or full at boot permits early probes without attestation.
 			Example:
 			device_trust=pci:0000:01:00.0=adversary,pci:0000:02:00.0=disabled
+			See Documentation/driver-api/driver-model/device-trust.rst.
+
+	device_trust.default=
+			[KNL] Set initial trust policy for devices without a
+			matching device_trust= entry, including hotplugged devices.
+			A matching device_trust.driver= rule can replace this
+			initial policy at the first binding attempt.
+			Format: { default | disabled | adversary | full }
+			default preserves bus-initialized policy (the default).
+			Other values override bus-initialized policy before
+			probing, including for built-in drivers.
+			The last valid value wins; invalid values are warned
+			about and ignored.
+			Without a matching driver rule, disabled prevents binding
+			until userspace authorizes each device by writing adversary
+			or full to trust_policy. Boot-critical devices need explicit
+			device or driver rules to operate before userspace. DMA
+			containment remains a bus and IOMMU responsibility.
 			See Documentation/driver-api/driver-model/device-trust.rst.
 
 	device_trust.driver=
