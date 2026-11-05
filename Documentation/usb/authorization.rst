@@ -92,6 +92,22 @@ can fake descriptors and device info. Don't trust that. You are
 welcome.
 
 
+Device trust
+------------
+
+Authorization is expressed through device trust, see
+Documentation/driver-api/driver-model/device-trust.rst. A device that the
+authorized_default setting does not authorize starts with the "disabled"
+trust policy and reads 0 in "authorized". Boot options such as
+``device_trust=usb:1-2=full`` replace this initial policy.
+
+Writing 1 to "authorized" for such a device requests the "full" policy and
+binds the device, which configures it. To operate it as an adversary,
+write "adversary" to its "trust_policy" attribute before writing 1. The
+choice is fixed for the life of the device: writing 0 deconfigures it, and
+a later 1 configures it again at the same trust level.
+
+
 Interface authorization
 -----------------------
 
@@ -119,6 +135,10 @@ Deny interfaces per default::
 
 Per default the interface_authorized_default bit is 1.
 So all interfaces would authorized per default.
+
+As with devices, an interface that is not authorized by default starts
+with the "disabled" trust policy, and writing 1 to its "authorized"
+attribute requests the "full" policy.
 
 Note:
   If a deauthorized interface will be authorized so the driver probing must

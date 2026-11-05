@@ -121,6 +121,11 @@ are admitted when the interface is registered, and a refusal then releases
 the claim. The policy of a claimed interface cannot be changed, and
 registration does not admit it while ``drivers_autoprobe`` is disabled.
 
+USB authorization uses this model. A USB device or interface that is not
+authorized by default starts disabled, and writing 1 to its ``authorized``
+attribute requests full. Writing 0 stops it without changing its
+commitment, see Documentation/usb/authorization.rst.
+
 Boot policy
 ===========
 

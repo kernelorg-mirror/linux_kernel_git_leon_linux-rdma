@@ -1857,7 +1857,7 @@ void usb_deauthorize_interface(struct usb_interface *intf)
 
 	device_lock(dev->parent);
 
-	if (intf->authorized) {
+	if (usb_interface_authorized(intf)) {
 		device_lock(dev);
 		intf->authorized = 0;
 		device_unlock(dev);
@@ -1872,16 +1872,27 @@ void usb_deauthorize_interface(struct usb_interface *intf)
  * usb_authorize_interface - authorize an USB interface
  *
  * @intf: USB interface structure
+ *
+ * Return: 0 on success, or the error of the trust policy request.
  */
-void usb_authorize_interface(struct usb_interface *intf)
+int usb_authorize_interface(struct usb_interface *intf)
 {
 	struct device *dev = &intf->dev;
+	int ret;
+
+	/* Authorizing an interface that its trust policy holds back admits it */
+	if (device_policy_is_disabled(dev)) {
+		ret = device_trust_set_policy(dev, DEVICE_TRUST_POLICY_FULL);
+		if (ret)
+			return ret;
+	}
 
 	if (!intf->authorized) {
 		device_lock(dev);
 		intf->authorized = 1; /* authorize interface */
 		device_unlock(dev);
 	}
+	return 0;
 }
 
 static int usb_if_uevent(const struct device *dev, struct kobj_uevent_env *env)
@@ -2043,7 +2054,7 @@ EXPORT_SYMBOL_GPL(usb_set_wireless_status);
  * channels are available independently; and choosing between open
  * standard device protocols (like CDC) or proprietary ones.
  *
- * Note that a non-authorized device (dev->authorized == 0) will only
+ * Note that a non-authorized device (see usb_device_authorized()) will only
  * be put in unconfigured mode.
  *
  * Note that USB has an additional level of device configurability,
@@ -2068,7 +2079,7 @@ int usb_set_configuration(struct usb_device *dev, int configuration)
 	struct usb_hcd *hcd = bus_to_hcd(dev->bus);
 	int n, nintf;
 
-	if (dev->authorized == 0 || configuration == -1)
+	if (!usb_device_authorized(dev) || configuration == -1)
 		configuration = 0;
 	else {
 		for (i = 0; i < dev->descriptor.bNumConfigurations; i++) {
@@ -2173,7 +2184,10 @@ free_interfaces:
 		intfc = cp->intf_cache[i];
 		intf->altsetting = intfc->altsetting;
 		intf->num_altsetting = intfc->num_altsetting;
-		intf->authorized = !!HCD_INTF_AUTHORIZED(hcd);
+		/* The authorization default is the interface's initial trust policy */
+		if (!HCD_INTF_AUTHORIZED(hcd))
+			intf->dev.trust_policy = DEVICE_TRUST_POLICY_DISABLED;
+		intf->authorized = 1;
 		kref_get(&intfc->ref);
 
 		alt = usb_altnum_to_altsetting(intf, 0);

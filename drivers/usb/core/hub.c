@@ -2770,7 +2770,7 @@ fail:
 int usb_deauthorize_device(struct usb_device *usb_dev)
 {
 	usb_lock_device(usb_dev);
-	if (usb_dev->authorized == 0)
+	if (!usb_device_authorized(usb_dev))
 		goto out_unauthorized;
 
 	usb_dev->authorized = 0;
@@ -2786,7 +2786,22 @@ int usb_authorize_device(struct usb_device *usb_dev)
 {
 	int result = 0, c;
 
+	/* Authorizing a device that its trust policy holds back admits it */
+	if (device_policy_is_disabled(&usb_dev->dev)) {
+		result = device_trust_set_policy(&usb_dev->dev,
+						 DEVICE_TRUST_POLICY_FULL);
+		if (result)
+			return result;
+	}
+
 	usb_lock_device(usb_dev);
+	if (!usb_dev->dev.driver) {
+		/* Binding the generic driver configures the device */
+		usb_dev->authorized = 1;
+		usb_unlock_device(usb_dev);
+		result = device_attach(&usb_dev->dev);
+		return result < 0 ? result : 0;
+	}
 	if (usb_dev->authorized == 1)
 		goto out_authorized;
 

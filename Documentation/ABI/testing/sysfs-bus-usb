@@ -12,6 +12,11 @@ Description:
 
 		A deauthorized interface cannot be probed or claimed.
 
+		An interface that is not authorized by default starts with
+		the "disabled" trust policy (see sysfs-devices-trust).
+		Writing 1 then requests the "full" policy. Deauthorizing
+		does not change the committed trust level.
+
 What:		/sys/bus/usb/devices/usbX/interface_authorized_default
 Date:		August 2015
 Description:
@@ -27,6 +32,12 @@ Description:
 		Authorized devices are available for use by device
 		drivers, non-authorized one are not.  By default, wired
 		USB devices are authorized.
+
+		A device that is not authorized by default starts with the
+		"disabled" trust policy (see sysfs-devices-trust). Writing 1
+		requests the "full" policy if the policy is disabled, then
+		binds and configures the device. Writing 0 deconfigures the
+		device without changing its committed trust level.
 
 What:		/sys/bus/usb/drivers/.../new_id
 Date:		October 2011
