@@ -183,7 +183,6 @@ void device_release_driver_internal(struct device *dev, const struct device_driv
 extern const struct attribute_group device_trust_attr_group;
 
 #if IS_ENABLED(CONFIG_KUNIT)
-int device_trust_set_policy(struct device *dev, enum device_trust_policy policy);
 int device_trust_parse_cmdline(const char *options, const struct device *dev,
 			       enum device_trust_policy *policy);
 void device_trust_apply_driver_policy(struct device *dev,

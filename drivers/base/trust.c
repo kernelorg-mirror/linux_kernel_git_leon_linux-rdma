@@ -173,8 +173,19 @@ static ssize_t trust_policy_show(struct device *dev,
 			  device_trust_policy_names[READ_ONCE(dev->trust_policy)]);
 }
 
-VISIBLE_IF_KUNIT int device_trust_set_policy(struct device *dev,
-					   enum device_trust_policy policy)
+/**
+ * device_trust_set_policy - Request a trust policy for a device
+ * @dev: registered device
+ * @policy: requested policy
+ *
+ * Apply the same rules as a write to the device's trust_policy attribute.
+ * A bus can use this to translate its own authorization interface into
+ * device trust. Takes the device lock.
+ *
+ * Return: 0 on success, -EBUSY if the policy can no longer change, -ENODEV
+ * if the device is being removed, or -EINVAL for an invalid policy.
+ */
+int device_trust_set_policy(struct device *dev, enum device_trust_policy policy)
 {
 	int ret = 0;
 
@@ -220,7 +231,7 @@ unlock:
 	device_unlock(dev);
 	return ret;
 }
-EXPORT_SYMBOL_IF_KUNIT(device_trust_set_policy);
+EXPORT_SYMBOL_GPL(device_trust_set_policy);
 
 static ssize_t trust_policy_store(struct device *dev,
 				  const struct device_attribute *attr,

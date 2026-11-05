@@ -939,6 +939,11 @@ static inline bool device_policy_is_adversarial(const struct device *dev)
 	return READ_ONCE(dev->trust_policy) == DEVICE_TRUST_POLICY_ADVERSARY;
 }
 
+static inline bool device_policy_is_disabled(const struct device *dev)
+{
+	return READ_ONCE(dev->trust_policy) == DEVICE_TRUST_POLICY_DISABLED;
+}
+
 /* Get the wakeup routines, which depend on struct device */
 #include <linux/pm_wakeup.h>
 

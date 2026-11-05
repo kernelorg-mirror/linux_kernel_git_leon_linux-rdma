@@ -39,6 +39,7 @@ enum device_trust_policy {
 };
 
 void device_trust_init(struct device *dev);
+int device_trust_set_policy(struct device *dev, enum device_trust_policy policy);
 bool device_trust_may_claim(const struct device *dev,
 			    const struct device_driver *drv);
 enum device_trust_level device_get_trust_level(const struct device *dev);
