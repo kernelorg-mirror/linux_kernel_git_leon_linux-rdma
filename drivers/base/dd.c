@@ -526,6 +526,21 @@ static void driver_sysfs_remove(struct device *dev)
 	}
 }
 
+static int __device_bind_driver(struct device *dev)
+{
+	int ret;
+
+	ret = driver_sysfs_add(dev);
+	if (ret) {
+		bus_notify(dev, BUS_NOTIFY_DRIVER_NOT_BOUND);
+		return ret;
+	}
+
+	device_links_force_bind(dev);
+	driver_bound(dev);
+	return 0;
+}
+
 /**
  * device_bind_driver - bind a driver to one device.
  * @dev: device.
@@ -543,18 +558,63 @@ static void driver_sysfs_remove(struct device *dev)
  */
 int device_bind_driver(struct device *dev)
 {
-	int ret;
-
-	ret = driver_sysfs_add(dev);
-	if (!ret) {
-		device_links_force_bind(dev);
-		driver_bound(dev);
-	}
-	else
-		bus_notify(dev, BUS_NOTIFY_DRIVER_NOT_BOUND);
-	return ret;
+	return __device_bind_driver(dev);
 }
 EXPORT_SYMBOL_GPL(device_bind_driver);
+
+/**
+ * device_driver_attach_full - attach a driver using subsystem serialization
+ * @drv: driver to attach
+ * @dev: device to attach it to
+ *
+ * This compatibility API must not be used in any new code. It prevents
+ * devices from using the device trust authorization infrastructure.
+ * New code must use device_driver_attach().
+ *
+ * Callers must serialize attachment and removal using their subsystem's
+ * existing locks. This function does not acquire the device or parent lock.
+ * It calls the bus or driver probe callback and publishes the binding without
+ * performing the normal driver-core DMA, pinctrl or power-domain setup.
+ *
+ * Return: 0 on success, or a negative error before binding.
+ */
+int device_driver_attach_full(const struct device_driver *drv, struct device *dev)
+{
+	int ret;
+
+	if (!device_is_registered(dev) || dev->p->dead)
+		return -ENODEV;
+	if (dev->driver)
+		return -EBUSY;
+
+	device_set_driver(dev, drv);
+	if (dev->bus->probe)
+		ret = dev->bus->probe(dev);
+	else
+		ret = drv->probe(dev);
+	if (ret)
+		goto clear_driver;
+
+	ret = __device_bind_driver(dev);
+	if (ret)
+		goto bus_remove;
+
+	return 0;
+
+bus_remove:
+	if (dev->bus->remove)
+		dev->bus->remove(dev);
+	else
+		drv->remove(dev);
+clear_driver:
+	devres_release_all(dev);
+	device_set_driver(dev, NULL);
+	dev_set_drvdata(dev, NULL);
+	if (ret == -EPROBE_DEFER)
+		return -EAGAIN;
+	return ret;
+}
+EXPORT_SYMBOL_GPL(device_driver_attach_full);
 
 static atomic_t probe_count = ATOMIC_INIT(0);
 static DECLARE_WAIT_QUEUE_HEAD(probe_waitqueue);

@@ -1314,6 +1314,8 @@ static inline void *dev_get_platdata(const struct device *dev)
  */
 int __must_check device_driver_attach(const struct device_driver *drv,
 				      struct device *dev);
+int __must_check device_driver_attach_full(const struct device_driver *drv,
+					  struct device *dev);
 int __must_check device_bind_driver(struct device *dev);
 void device_release_driver(struct device *dev);
 int  __must_check device_attach(struct device *dev);
