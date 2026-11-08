@@ -178,6 +178,14 @@ void device_release_driver_internal(struct device *dev, const struct device_driv
 
 extern const struct attribute_group device_trust_attr_group;
 
+#if IS_ENABLED(CONFIG_KUNIT)
+int device_trust_parse_cmdline(const char *options, const struct device *dev,
+			       enum device_trust_policy *policy);
+void device_trust_apply_boot_policy(struct device *dev,
+				    enum device_trust_policy policy,
+				    const char *options);
+#endif
+
 /* Full-only manual attachment uses the caller's subsystem serialization. */
 void device_trust_init_state(struct device *dev);
 int device_trust_prepare(struct device *dev, const struct device_driver *drv);

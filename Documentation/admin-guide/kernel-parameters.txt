@@ -1259,6 +1259,15 @@ Kernel parameters
 	dell_smm_hwmon.fan_max=
 			[HW] Maximum configurable fan speed.
 
+	device_trust=	[KNL]
+			Set initial device trust policy before probing, including
+			for devices added after boot.
+			Format: <bus>:<device>=<policy>[,...]
+			Names match exactly as in /sys/bus/<bus>/devices/<device>.
+			Policies are default, disabled, adversary, and full.
+			Entries override bus policy and device_trust.default.
+			See Documentation/driver-api/driver-model/device-trust.rst.
+
 	device_trust.default=
 			[KNL] Set the initial trust policy for all devices.
 			Format: { default | disabled | adversary | full }

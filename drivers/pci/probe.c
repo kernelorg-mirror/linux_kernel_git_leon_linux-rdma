@@ -2083,6 +2083,7 @@ int pci_setup_device(struct pci_dev *dev)
 	set_pcie_cxl(dev);
 
 	set_pcie_untrusted(dev);
+	device_trust_init(&dev->dev);
 
 	/* "Unknown power state" */
 	dev->current_state = PCI_UNKNOWN;
