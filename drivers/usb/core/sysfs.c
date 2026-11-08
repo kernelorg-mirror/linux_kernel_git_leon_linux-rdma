@@ -728,7 +728,7 @@ static ssize_t authorized_show(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
 	struct usb_device *usb_dev = to_usb_device(dev);
-	return sysfs_emit(buf, "%u\n", usb_dev->authorized);
+	return sysfs_emit(buf, "%u\n", usb_device_authorized(usb_dev));
 }
 
 /*
@@ -1213,7 +1213,7 @@ static ssize_t interface_authorized_show(struct device *dev,
 {
 	struct usb_interface *intf = to_usb_interface(dev);
 
-	return sysfs_emit(buf, "%u\n", intf->authorized);
+	return sysfs_emit(buf, "%u\n", usb_interface_authorized(intf));
 }
 
 /*
@@ -1225,12 +1225,15 @@ static ssize_t interface_authorized_store(struct device *dev,
 	struct usb_interface *intf = to_usb_interface(dev);
 	bool val;
 	struct kernfs_node *kn;
+	int ret;
 
 	if (kstrtobool(buf, &val) != 0)
 		return -EINVAL;
 
 	if (val) {
-		usb_authorize_interface(intf);
+		ret = usb_authorize_interface(intf);
+		if (ret)
+			return ret;
 	} else {
 		/*
 		 * Prevent deadlock if another process is concurrently

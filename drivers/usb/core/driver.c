@@ -334,10 +334,10 @@ static int usb_probe_interface(struct device *dev)
 	if (usb_device_is_owned(udev))
 		return error;
 
-	if (udev->authorized == 0) {
+	if (!usb_device_authorized(udev)) {
 		dev_info(&intf->dev, "Device is not authorized for usage\n");
 		return error;
-	} else if (intf->authorized == 0) {
+	} else if (!usb_interface_authorized(intf)) {
 		dev_info(&intf->dev, "Interface %d is not authorized for usage\n",
 				intf->altsetting->desc.bInterfaceNumber);
 		return error;
@@ -560,12 +560,8 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 		return -EBUSY;
 
 	/* reject claim if interface is not authorized */
-	if (!iface->authorized)
+	if (!usb_interface_authorized(iface))
 		return -ENODEV;
-
-	if (!device_is_registered(dev) &&
-	    dev->trust_policy == DEVICE_TRUST_POLICY_DISABLED)
-		return -EPERM;
 
 	dev->driver = &driver->driver;
 	usb_set_intfdata(iface, data);

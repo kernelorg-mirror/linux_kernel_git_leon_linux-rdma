@@ -747,7 +747,10 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	dev->active_duration = -jiffies;
 #endif
 
-	dev->authorized = usb_dev_authorized(dev, usb_hcd);
+	/* The authorization default is the device's initial trust policy */
+	if (!usb_dev_authorized(dev, usb_hcd))
+		dev->dev.trust_policy = DEVICE_TRUST_POLICY_DISABLED;
+	dev->authorized = 1;
 	trace_usb_alloc_dev(dev);
 	return dev;
 }

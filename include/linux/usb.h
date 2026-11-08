@@ -204,8 +204,8 @@ enum usb_wireless_status {
  *	has been deferred.
  * @needs_binding: flag set when the driver should be re-probed or unbound
  *	following a reset or suspend operation it doesn't support.
- * @authorized: This allows to (de)authorize individual interfaces instead
- *	a whole device in contrast to the device authorization.
+ * @authorized: user space has not deauthorized the interface. Whether it may
+ *	be used also depends on its trust policy, see usb_interface_authorized().
  * @wireless_status: if the USB device uses a receiver/emitter combo, whether
  *	the emitter is connected.
  * @wireless_status_work: Used for scheduling wireless status changes
@@ -275,6 +275,15 @@ struct usb_interface {
 };
 
 #define to_usb_interface(__dev)	container_of_const(__dev, struct usb_interface, dev)
+
+/*
+ * An interface is authorized when its trust policy lets it bind and user space
+ * has not deauthorized it since.
+ */
+static inline bool usb_interface_authorized(const struct usb_interface *intf)
+{
+	return intf->authorized && !device_policy_is_disabled(&intf->dev);
+}
 
 static inline void *usb_get_intfdata(struct usb_interface *intf)
 {
@@ -609,11 +618,8 @@ struct usb3_lpm_parameters {
  * @persist_enabled:  USB_PERSIST enabled for this device
  * @reset_in_progress: the device is being reset
  * @have_langid: whether string_langid is valid
- * @authorized: policy has said we can use it;
- *	(user space) policy determines if we authorize this device to be
- *	used or not. By default, wired USB devices are authorized.
- *	WUSB devices are not, until we authorize them from user space.
- *	FIXME -- complete doc
+ * @authorized: user space has not deauthorized the device. Whether the device
+ *	may be used also depends on its trust policy, see usb_device_authorized().
  * @authenticated: Crypto authentication passed
  * @tunnel_mode: Connection native or tunneled over USB4
  * @usb4_link: device link to the USB4 host interface
@@ -746,6 +752,15 @@ struct usb_device {
 };
 
 #define to_usb_device(__dev)	container_of_const(__dev, struct usb_device, dev)
+
+/*
+ * A device is authorized when its trust policy lets it bind and user space has
+ * not deauthorized it since.
+ */
+static inline bool usb_device_authorized(const struct usb_device *udev)
+{
+	return udev->authorized && !device_policy_is_disabled(&udev->dev);
+}
 
 static inline struct usb_device *__intf_to_usbdev(struct usb_interface *intf)
 {
