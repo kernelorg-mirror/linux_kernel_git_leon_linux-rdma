@@ -558,12 +558,24 @@ static int __device_bind_driver(struct device *dev)
  */
 int device_bind_driver(struct device *dev)
 {
-	return __device_bind_driver(dev);
+	int ret;
+
+	if (dev->bus && dev->bus->trust_resolve)
+		return -EOPNOTSUPP;
+
+	ret = device_trust_prepare(dev, dev->driver);
+	if (ret)
+		return ret;
+
+	ret = __device_bind_driver(dev);
+	if (ret)
+		device_trust_clear(dev);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(device_bind_driver);
 
 /**
- * device_driver_attach_full - attach a driver using subsystem serialization
+ * device_driver_attach_full - attach a driver under the global full policy
  * @drv: driver to attach
  * @dev: device to attach it to
  *
@@ -576,6 +588,12 @@ EXPORT_SYMBOL_GPL(device_bind_driver);
  * It calls the bus or driver probe callback and publishes the binding without
  * performing the normal driver-core DMA, pinctrl or power-domain setup.
  *
+ * Requires device_trust.default=full and a full operating level. Runtime
+ * policy writes are disabled in this mode; boot policy exceptions still
+ * apply. When driver boot rules exist, an explicit device boot rule must
+ * exclude them for @dev. Buses with a trust resolver must use
+ * device_driver_attach().
+ *
  * Return: 0 on success, or a negative error before binding.
  */
 int device_driver_attach_full(const struct device_driver *drv, struct device *dev)
@@ -586,6 +604,10 @@ int device_driver_attach_full(const struct device_driver *drv, struct device *de
 		return -ENODEV;
 	if (dev->driver)
 		return -EBUSY;
+
+	ret = device_trust_prepare_full(dev, drv);
+	if (ret)
+		return ret;
 
 	device_set_driver(dev, drv);
 	if (dev->bus->probe)
@@ -610,6 +632,7 @@ clear_driver:
 	devres_release_all(dev);
 	device_set_driver(dev, NULL);
 	dev_set_drvdata(dev, NULL);
+	WRITE_ONCE(dev->trust_level, DEVICE_TRUST_DISABLED);
 	if (ret == -EPROBE_DEFER)
 		return -EAGAIN;
 	return ret;
@@ -739,6 +762,14 @@ static int really_probe(struct device *dev, const struct device_driver *drv)
 	}
 
 re_probe:
+	ret = device_trust_prepare(dev, drv);
+	if (ret) {
+		device_links_no_driver(dev);
+		/* Report it like a probe error so a scan tries the next driver. */
+		ret = -ret;
+		goto done;
+	}
+
 	device_set_driver(dev, drv);
 
 	/* If using pinctrl, bind pins now before probing */
@@ -805,6 +836,7 @@ re_probe:
 		if (dev->bus && dev->bus->dma_cleanup)
 			dev->bus->dma_cleanup(dev);
 		device_unbind_cleanup(dev);
+		device_trust_clear(dev);
 
 		goto re_probe;
 	}
@@ -831,6 +863,7 @@ sysfs_failed:
 pinctrl_bind_failed:
 	device_links_no_driver(dev);
 	device_unbind_cleanup(dev);
+	device_trust_clear(dev);
 done:
 	return ret;
 }
@@ -1420,6 +1453,7 @@ static void __device_release_driver(struct device *dev, struct device *parent)
 			dev->bus->dma_cleanup(dev);
 
 		device_unbind_cleanup(dev);
+		device_trust_clear(dev);
 		device_links_driver_cleanup(dev);
 
 		klist_remove(&dev->p->knode_driver);

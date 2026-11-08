@@ -10,6 +10,7 @@
  * shared outside of the drivers/base/ directory.
  *
  */
+#include <linux/device/trust.h>
 #include <linux/notifier.h>
 
 /**
@@ -88,6 +89,13 @@ struct driver_private {
 };
 #define to_driver(obj) container_of(obj, struct driver_private, kobj)
 
+enum device_trust_state {
+	DEVICE_TRUST_SELECTABLE,
+	DEVICE_TRUST_WAITING,
+	DEVICE_TRUST_AUTHORIZED,
+	DEVICE_TRUST_COMMITTED,
+};
+
 /**
  * struct device_private - structure to hold the private to the driver core
  *			   portions of the device structure.
@@ -105,6 +113,7 @@ struct driver_private {
  *			   dev_err_probe() for later retrieval via debugfs
  * @device: pointer back to the struct device that this structure is
  *	    associated with.
+ * @trust_state: policy admission state
  * @dead: This device is currently either in the process of or has been
  *	  removed from the system. Any asynchronous events scheduled for this
  *	  device should exit without taking any action.
@@ -121,6 +130,7 @@ struct device_private {
 	const struct device_driver *async_driver;
 	char *deferred_probe_reason;
 	struct device *device;
+	enum device_trust_state trust_state;
 	u8 dead:1;
 };
 #define to_device_private_parent(obj)	\
@@ -165,6 +175,12 @@ int bus_add_driver(struct device_driver *drv);
 void bus_remove_driver(struct device_driver *drv);
 void device_release_driver_internal(struct device *dev, const struct device_driver *drv,
 				    struct device *parent);
+
+/* Full-only manual attachment uses the caller's subsystem serialization. */
+void device_trust_init_state(struct device *dev);
+int device_trust_prepare(struct device *dev, const struct device_driver *drv);
+int device_trust_prepare_full(struct device *dev, const struct device_driver *drv);
+void device_trust_clear(struct device *dev);
 
 void driver_detach(const struct device_driver *drv);
 void driver_deferred_probe_del(struct device *dev);
