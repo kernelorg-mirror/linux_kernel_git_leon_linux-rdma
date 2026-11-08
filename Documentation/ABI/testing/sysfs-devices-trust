@@ -1,0 +1,28 @@
+What:		/sys/devices/.../trust
+Date:		September 2026
+Contact:	driver-core@lists.linux.dev
+Description:
+		(RO) The active trust level for the device. The values are
+		"disabled", "adversary", and "full". Driver core resolves
+		the level before probe, and retains it through whole lifetime.
+
+What:		/sys/devices/.../trust_policy
+Date:		September 2026
+Contact:	driver-core@lists.linux.dev
+Description:
+		(RW) The requested trust policy for the device. The initial
+		value may be selected by the bus before the device is
+		registered; otherwise it is "default". The policy is resolved
+		to an active trust level before the device is probed.
+
+		The values are "default", "disabled", "adversary", and
+		"full". "default" lets the bus select the active trust level.
+		"disabled" prevents a driver from binding and informs the kernel
+		to provide containtment of the device. For example a PCIe device
+		should be unable to DMA to the memory. "adversary" informs the
+		kernel that the userspace wants to opt into any security
+		defences the kernel may have to restrict and further validate
+		interactions with the device. This may have a performance or
+		functional cost compared to "full". As an example the DMA API
+		and IOMMU layers will avoid exposing unrelated nearby memory
+		to the device during DMA. "full" requests normal operation.

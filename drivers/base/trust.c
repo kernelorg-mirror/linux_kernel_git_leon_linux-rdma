@@ -5,6 +5,7 @@
 #include <linux/export.h>
 #include <linux/init.h>
 #include <linux/string.h>
+#include <linux/sysfs.h>
 #include <kunit/visibility.h>
 
 #include "base.h"
@@ -105,6 +106,111 @@ static const char * const device_trust_policy_names[] = {
 	[DEVICE_TRUST_POLICY_FULL] = "full",
 };
 
+static const char * const device_trust_level_names[] = {
+	[DEVICE_TRUST_DISABLED] = "disabled",
+	[DEVICE_TRUST_ADVERSARY] = "adversary",
+	[DEVICE_TRUST_FULL] = "full",
+};
+
+static ssize_t trust_show(struct device *dev,
+			  const struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%s\n",
+			  device_trust_level_names[device_get_trust_level(dev)]);
+}
+static DEVICE_ATTR_RO(trust);
+
+static ssize_t trust_policy_show(struct device *dev,
+				 const struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%s\n",
+			  device_trust_policy_names[READ_ONCE(dev->trust_policy)]);
+}
+
+/**
+ * device_trust_set_policy - Request a trust policy for a device
+ * @dev: registered device
+ * @policy: requested policy
+ *
+ * Apply the same rules as a write to the device's trust_policy attribute.
+ * A bus can use this to translate its own authorization interface into
+ * device trust. Takes the device lock except when the global full policy
+ * makes runtime policy changes unavailable. In that mode, writing the current
+ * policy is a no-op.
+ *
+ * Return: 0 on success, -EBUSY if the policy can no longer change, -ENODEV
+ * if the device is being removed outside global full mode.
+ */
+int device_trust_set_policy(struct device *dev, enum device_trust_policy policy)
+{
+	int ret = 0;
+
+	if (device_trust_default_policy == DEVICE_TRUST_POLICY_FULL)
+		return policy == READ_ONCE(dev->trust_policy) ? 0 : -EBUSY;
+
+	device_lock(dev);
+	if (dev->p->dead) {
+		ret = -ENODEV;
+		goto unlock;
+	}
+	if (policy == dev->trust_policy)
+		goto unlock;
+
+	/* A driver that claimed the device before registration was not admitted. */
+	if (READ_ONCE(dev->driver)) {
+		ret = -EBUSY;
+		goto unlock;
+	}
+
+	switch (dev->p->trust_state) {
+	case DEVICE_TRUST_SELECTABLE:
+		if (policy == DEVICE_TRUST_POLICY_DISABLED)
+			dev->p->trust_state = DEVICE_TRUST_WAITING;
+		break;
+	case DEVICE_TRUST_WAITING:
+		if (policy != DEVICE_TRUST_POLICY_ADVERSARY &&
+		    policy != DEVICE_TRUST_POLICY_FULL) {
+			ret = -EBUSY;
+			goto unlock;
+		}
+		dev->p->trust_state = DEVICE_TRUST_AUTHORIZED;
+		break;
+	default:
+		ret = -EBUSY;
+		goto unlock;
+	}
+	WRITE_ONCE(dev->trust_policy, policy);
+unlock:
+	device_unlock(dev);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(device_trust_set_policy);
+
+static ssize_t trust_policy_store(struct device *dev,
+				  const struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	int policy, ret;
+
+	policy = sysfs_match_string(device_trust_policy_names, buf);
+	if (policy < 0)
+		return policy;
+
+	ret = device_trust_set_policy(dev, policy);
+
+	return ret ? ret : count;
+}
+static DEVICE_ATTR_RW(trust_policy);
+
+static struct attribute *device_trust_attrs[] = {
+	&dev_attr_trust.attr,
+	&dev_attr_trust_policy.attr,
+	NULL,
+};
+
+const struct attribute_group device_trust_attr_group = {
+	.attrs = device_trust_attrs,
+};
 static int __init device_trust_default_setup(char *str)
 {
 	int policy = match_string(device_trust_policy_names,

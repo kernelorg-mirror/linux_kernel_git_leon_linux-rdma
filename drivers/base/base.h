@@ -176,6 +176,8 @@ void bus_remove_driver(struct device_driver *drv);
 void device_release_driver_internal(struct device *dev, const struct device_driver *drv,
 				    struct device *parent);
 
+extern const struct attribute_group device_trust_attr_group;
+
 /* Full-only manual attachment uses the caller's subsystem serialization. */
 void device_trust_init_state(struct device *dev);
 int device_trust_prepare(struct device *dev, const struct device_driver *drv);

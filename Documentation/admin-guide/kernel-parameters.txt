@@ -1266,6 +1266,7 @@ Kernel parameters
 			Other values replace bus policy. The last valid value wins.
 			Full-only manual driver attachment requires full; other
 			global policies reject it before the probe callback.
+			With full, runtime trust policy changes are unavailable.
 
 	dfltcc=		[HW,S390]
 			Format: { on | off | def_only | inf_only | always }
