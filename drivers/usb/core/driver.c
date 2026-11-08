@@ -584,8 +584,11 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 	/* if interface was already added, bind now; else let
 	 * the future device_add() bind it, bypassing probe()
 	 */
-	if (device_is_registered(dev))
+	if (device_is_registered(dev)) {
+		device_lock(dev);
 		retval = device_bind_driver(dev);
+		device_unlock(dev);
+	}
 
 	if (retval) {
 		dev->driver = NULL;
