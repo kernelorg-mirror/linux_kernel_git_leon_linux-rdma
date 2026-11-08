@@ -563,6 +563,10 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 	if (!iface->authorized)
 		return -ENODEV;
 
+	if (!device_is_registered(dev) &&
+	    dev->trust_policy == DEVICE_TRUST_POLICY_DISABLED)
+		return -EPERM;
+
 	dev->driver = &driver->driver;
 	usb_set_intfdata(iface, data);
 	iface->needs_binding = 0;

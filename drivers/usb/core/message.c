@@ -2209,6 +2209,8 @@ free_interfaces:
 		pm_runtime_no_callbacks(&intf->dev);
 		dev_set_name(&intf->dev, "%d-%s:%d.%d", dev->bus->busnum,
 				dev->devpath, configuration, ifnum);
+		/* A sibling may claim the interface before it is registered */
+		device_trust_init(&intf->dev);
 		/*
 		 * Make sure the interface does not outlive its parent (e.g.
 		 * as needed for usb_queue_reset_device() and

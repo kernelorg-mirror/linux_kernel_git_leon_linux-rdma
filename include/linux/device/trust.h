@@ -5,6 +5,7 @@
 #include <linux/types.h>
 
 struct device;
+struct device_driver;
 
 /**
  * enum device_trust_level - active trust level for a device

@@ -114,6 +114,7 @@ enum device_trust_state {
  * @device: pointer back to the struct device that this structure is
  *	    associated with.
  * @trust_state: policy admission state
+ * @trust_policy_override: explicit policy prevents deferred driver boot policy
  * @dead: This device is currently either in the process of or has been
  *	  removed from the system. Any asynchronous events scheduled for this
  *	  device should exit without taking any action.
@@ -131,6 +132,7 @@ struct device_private {
 	char *deferred_probe_reason;
 	struct device *device;
 	enum device_trust_state trust_state;
+	u8 trust_policy_override:1;
 	u8 dead:1;
 };
 #define to_device_private_parent(obj)	\
@@ -181,6 +183,9 @@ extern const struct attribute_group device_trust_attr_group;
 #if IS_ENABLED(CONFIG_KUNIT)
 int device_trust_parse_cmdline(const char *options, const struct device *dev,
 			       enum device_trust_policy *policy);
+void device_trust_apply_driver_policy(struct device *dev,
+				      const struct device_driver *drv,
+				      const char *options);
 void device_trust_apply_boot_policy(struct device *dev,
 				    enum device_trust_policy policy,
 				    const char *options);
