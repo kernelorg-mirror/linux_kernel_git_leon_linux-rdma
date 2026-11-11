@@ -52,13 +52,17 @@ static const struct pnp_card_device_id *match_card(struct pnp_card_driver *drv,
 
 static void card_remove(struct pnp_dev *dev)
 {
-	dev->card_link = NULL;
+	if (device_is_bound(&dev->dev))
+		dev->card_link = NULL;
 }
 
 static void card_remove_first(struct pnp_dev *dev)
 {
 	struct pnp_card_driver *drv = to_pnp_card_driver(dev->driver);
 
+	/* The card probe still owns its link until this device is bound. */
+	if (!device_is_bound(&dev->dev))
+		return;
 	if (!dev->card || !drv)
 		return;
 	if (drv->remove)
@@ -331,16 +335,12 @@ struct pnp_dev *pnp_request_card_device(struct pnp_card_link *clink,
 
 found:
 	dev->card_link = clink;
-	dev->dev.driver = &drv->link.driver;
-	if (pnp_bus_type.probe(&dev->dev))
-		goto err_out;
-	if (device_bind_driver(&dev->dev))
+	if (device_driver_attach(&drv->link.driver, &dev->dev))
 		goto err_out;
 
 	return dev;
 
 err_out:
-	dev->dev.driver = NULL;
 	dev->card_link = NULL;
 	return NULL;
 }
