@@ -637,6 +637,14 @@ static void usb_unbind_claim(struct usb_interface *iface)
 	usb_put_claim_owner(iface);
 }
 
+void usb_release_unregistered_interface(struct usb_interface *iface)
+{
+	device_lock(&iface->dev);
+	if (iface->condition == USB_INTERFACE_BOUND)
+		usb_unbind_claim(iface);
+	device_unlock(&iface->dev);
+}
+
 /**
  * usb_driver_release_interface - unbind a driver from an interface
  * @driver: the driver to be unbound
@@ -678,6 +686,24 @@ unlock:
 	device_unlock(dev);
 }
 EXPORT_SYMBOL_GPL(usb_driver_release_interface);
+
+bool usb_driver_release_refused_claim(struct usb_interface *iface,
+				      struct device_driver *claimant)
+{
+	struct device *dev = &iface->dev;
+
+	device_lock(dev);
+	if (iface->condition != USB_INTERFACE_BOUND) {
+		device_unlock(dev);
+		return false;
+	}
+	dev->driver = claimant;
+	usb_unbind_interface(dev);
+	dev_set_drvdata(dev, NULL);
+	dev->driver = NULL;
+	device_unlock(dev);
+	return true;
+}
 
 /* returns 0 if no match, 1 if match */
 int usb_match_device(struct usb_device *dev, const struct usb_device_id *id)
