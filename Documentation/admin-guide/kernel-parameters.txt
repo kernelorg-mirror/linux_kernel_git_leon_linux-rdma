@@ -1262,9 +1262,18 @@ Kernel parameters
 	device_trust	[KNL]
 			Enable device trust with blocked as the implicit default.
 
+	device_trust=	[KNL]
+			Set initial device trust policy before probing, including
+			for devices added after boot.
+			Format: <bus>:<device>=<policy>[,...]
+			Names match exactly as in /sys/bus/<bus>/devices/<device>.
+			Policies are default, blocked, adversary, and unrestricted.
+			Entries override bus policy and device_trust.default.
+			See Documentation/driver-api/driver-model/device-trust.rst.
+
 	device_trust.default=
-			[KNL] Set initial trust policy for all devices, including
-			hotplugged devices.
+			[KNL] Set initial trust policy for devices without a
+			matching device_trust= entry, including hotplugged devices.
 			Format: { default | blocked | adversary | unrestricted }
 			No trust options selects legacy unrestricted mode, preserving
 			bus policy and existing authorization. Otherwise blocked is the

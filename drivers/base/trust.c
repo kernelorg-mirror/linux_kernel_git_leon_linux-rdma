@@ -1,17 +1,30 @@
 // SPDX-License-Identifier: GPL-2.0
 
+#include <linux/ctype.h>
 #include <linux/device.h>
 #include <linux/errno.h>
 #include <linux/export.h>
 #include <linux/init.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
+#include <kunit/visibility.h>
 
 #include "base.h"
 
 static enum device_trust_policy device_trust_default_policy __ro_after_init =
 	DEVICE_TRUST_POLICY_UNRESTRICTED;
 static bool device_trust_configured __ro_after_init;
+
+/**
+ * device_trust_enabled - Test whether boot options enabled device trust
+ *
+ * Return: True if any device trust option was supplied at boot.
+ */
+bool device_trust_enabled(void)
+{
+	return device_trust_configured;
+}
+EXPORT_SYMBOL_GPL(device_trust_enabled);
 
 static void __init device_trust_configure(void)
 {
@@ -284,6 +297,88 @@ static struct attribute *device_trust_attrs[] = {
 const struct attribute_group device_trust_attr_group = {
 	.attrs = device_trust_attrs,
 };
+
+static const char *device_trust_cmdline __ro_after_init;
+
+static int device_trust_parse_policy(const char *options, const char *target_bus,
+				     const char *target_name,
+				     enum device_trust_policy *policy)
+{
+	enum device_trust_policy selected = DEVICE_TRUST_POLICY_DEFAULT;
+	const char *entry = options;
+	bool matched = false;
+
+	if (!*entry)
+		return -EINVAL;
+
+	for (;;) {
+		const char *end = entry + strcspn(entry, ",");
+		const char *bus_end, *name, *level, *p;
+		unsigned int i;
+
+		bus_end = memchr(entry, ':', end - entry);
+		if (!bus_end || bus_end == entry ||
+		    memchr(entry, '=', bus_end - entry))
+			return -EINVAL;
+		name = bus_end + 1;
+		level = memchr(name, '=', end - name);
+		if (!level || level == name || level + 1 == end)
+			return -EINVAL;
+
+		for (p = entry; p < end; p++)
+			if (isspace(*p) || iscntrl(*p) || *p == '"')
+				return -EINVAL;
+
+		for (i = 0; i < ARRAY_SIZE(device_trust_policy_names); i++)
+			if (strlen(device_trust_policy_names[i]) == end - level - 1 &&
+			    !strncmp(level + 1, device_trust_policy_names[i],
+				     end - level - 1))
+				break;
+		if (i == ARRAY_SIZE(device_trust_policy_names))
+			return -EINVAL;
+
+		if (target_bus && target_name &&
+		    strlen(target_bus) == bus_end - entry &&
+		    !strncmp(target_bus, entry, bus_end - entry) &&
+		    strlen(target_name) == level - name &&
+		    !strncmp(target_name, name, level - name)) {
+			selected = i;
+			matched = true;
+		}
+
+		if (!*end)
+			break;
+		entry = end + 1;
+	}
+
+	if (matched && policy)
+		*policy = selected;
+	return matched;
+}
+
+VISIBLE_IF_KUNIT int device_trust_parse_cmdline(const char *options,
+						const struct device *dev,
+						enum device_trust_policy *policy)
+{
+	return device_trust_parse_policy(options, dev && dev->bus ? dev->bus->name : NULL,
+					 dev ? dev_name(dev) : NULL, policy);
+}
+EXPORT_SYMBOL_IF_KUNIT(device_trust_parse_cmdline);
+
+static int __init device_trust_setup(char *str)
+{
+	device_trust_configure();
+	if (device_trust_parse_cmdline(str, NULL, NULL) < 0) {
+		pr_warn("device_trust: ignoring invalid policy list '%s'\n", str);
+		return 1;
+	}
+
+	/* The command-line buffer survives init. */
+	device_trust_cmdline = str;
+	return 1;
+}
+__setup("device_trust=", device_trust_setup);
+
 static int __init device_trust_default_setup(char *str)
 {
 	int policy = match_string(device_trust_policy_names,
@@ -300,17 +395,28 @@ static int __init device_trust_default_setup(char *str)
 }
 __setup("device_trust.default=", device_trust_default_setup);
 
+VISIBLE_IF_KUNIT void device_trust_apply_boot_policy(struct device *dev,
+						   enum device_trust_policy policy,
+						   const char *options)
+{
+	if (policy != DEVICE_TRUST_POLICY_DEFAULT)
+		dev->trust_policy = policy;
+	if (options)
+		device_trust_parse_cmdline(options, dev, &dev->trust_policy);
+}
+EXPORT_SYMBOL_IF_KUNIT(device_trust_apply_boot_policy);
+
 /**
- * device_trust_init - Apply global boot policy before registration
- * @dev: unregistered device with its initial policy set
+ * device_trust_init - Apply boot policy before registration or bus policy use
+ * @dev: unregistered device with its bus, name, and default policy set
  */
 void device_trust_init(struct device *dev)
 {
 	if (dev->trust_committed_level != DEVICE_TRUST_BLOCKED)
 		return;
 
-	if (device_trust_configured &&
-	    device_trust_default_policy != DEVICE_TRUST_POLICY_DEFAULT)
-		dev->trust_policy = device_trust_default_policy;
+	if (device_trust_configured)
+		device_trust_apply_boot_policy(dev, device_trust_default_policy,
+					       device_trust_cmdline);
 }
 EXPORT_SYMBOL_GPL(device_trust_init);

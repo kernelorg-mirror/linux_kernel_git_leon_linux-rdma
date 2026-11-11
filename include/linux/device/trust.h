@@ -40,6 +40,7 @@ enum device_trust_policy {
 	DEVICE_TRUST_POLICY_UNRESTRICTED,
 };
 
+bool device_trust_enabled(void);
 void device_trust_init(struct device *dev);
 int device_trust_prepare(struct device *dev, const struct device_driver *drv);
 void device_trust_clear(struct device *dev);
