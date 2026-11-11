@@ -367,7 +367,7 @@ static int cdx_dma_configure(struct device *dev)
 			arch_teardown_dma_ops(dev);
 	}
 
-	return 0;
+	return ret;
 }
 
 static void cdx_dma_cleanup(struct device *dev)
