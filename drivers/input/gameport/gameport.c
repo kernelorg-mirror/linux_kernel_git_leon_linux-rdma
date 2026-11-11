@@ -216,24 +216,12 @@ static int gameport_bind_driver(struct gameport *gameport, struct gameport_drive
 {
 	int error;
 
-	gameport->dev.driver = &drv->driver;
-	if (drv->connect(gameport, drv)) {
-		gameport->dev.driver = NULL;
-		return -ENODEV;
-	}
+	if (!device_trylock(&gameport->dev))
+		return -EBUSY;
 
-	error = device_bind_driver(&gameport->dev);
-	if (error) {
-		dev_warn(&gameport->dev,
-			 "device_bind_driver() failed for %s (%s) and %s, error: %d\n",
-			gameport->phys, gameport->name,
-			drv->description, error);
-		drv->disconnect(gameport);
-		gameport->dev.driver = NULL;
-		return error;
-	}
-
-	return 0;
+	error = device_driver_attach_unrestricted(&drv->driver, &gameport->dev);
+	device_unlock(&gameport->dev);
+	return error;
 }
 
 static void gameport_find_driver(struct gameport *gameport)
