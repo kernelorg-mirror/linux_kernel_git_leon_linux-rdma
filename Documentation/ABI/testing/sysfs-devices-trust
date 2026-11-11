@@ -1,0 +1,32 @@
+What:		/sys/devices/.../trust
+Date:		September 2026
+Contact:	driver-core@lists.linux.dev
+Description:
+		(RO) The active trust level for the device. The values are
+		"blocked", "adversary", and "unrestricted". Driver core resolves
+		the level before driver setup and retains it through DMA
+		cleanup. It is "blocked" outside a binding transaction.
+
+What:		/sys/devices/.../trust_policy
+Date:		September 2026
+Contact:	driver-core@lists.linux.dev
+Description:
+		(RW) The requested trust policy for the device. The initial
+		value may be selected by the bus before the device is
+		registered; otherwise it is "default". The policy is resolved
+		to an active trust level before the device is probed.
+
+		Changes through this attribute require an explicit device
+		trust boot option. Any such option selects an implicit
+		blocked default; use device_trust.default=default to
+		enable them while preserving bus policy. Without one,
+		only writing the current policy succeeds. Existing bus
+		authorization interfaces remain available. Explicit unrestricted
+		policy disables runtime policy changes.
+
+		The values are "default", "blocked", "adversary", and
+		"unrestricted". "default" lets the bus select the operating level.
+		"blocked" prevents driver binding. "adversary" requests
+		classification as potentially malicious. "unrestricted" requests
+		normal operation. Adversary protections depend on bus, DMA,
+		and driver support; classification alone adds none.

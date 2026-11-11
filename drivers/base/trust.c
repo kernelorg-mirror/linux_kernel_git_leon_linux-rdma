@@ -5,6 +5,7 @@
 #include <linux/export.h>
 #include <linux/init.h>
 #include <linux/string.h>
+#include <linux/sysfs.h>
 
 #include "base.h"
 
@@ -155,6 +156,134 @@ static const char * const device_trust_policy_names[] = {
 	[DEVICE_TRUST_POLICY_UNRESTRICTED] = "unrestricted",
 };
 
+static const char * const device_trust_level_names[] = {
+	[DEVICE_TRUST_BLOCKED] = "blocked",
+	[DEVICE_TRUST_ADVERSARY] = "adversary",
+	[DEVICE_TRUST_UNRESTRICTED] = "unrestricted",
+};
+
+static ssize_t trust_show(struct device *dev,
+			  const struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%s\n",
+			  device_trust_level_names[device_get_trust_level(dev)]);
+}
+static DEVICE_ATTR_RO(trust);
+
+static ssize_t trust_policy_show(struct device *dev,
+				 const struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%s\n",
+			  device_trust_policy_names[READ_ONCE(dev->trust_policy)]);
+}
+
+static bool device_trust_policy_frozen(void)
+{
+	return device_trust_configured &&
+		device_trust_default_policy == DEVICE_TRUST_POLICY_UNRESTRICTED;
+}
+
+/**
+ * device_trust_set_policy_locked - Request policy with the device locked
+ * @dev: registered device
+ * @policy: requested policy
+ *
+ * Apply the admission rules while the caller holds the device lock.
+ *
+ * Return: 0 on success, -EBUSY if the policy can no longer change, or
+ * -ENODEV if the device is being removed outside explicit unrestricted mode.
+ */
+int device_trust_set_policy_locked(struct device *dev,
+				   enum device_trust_policy policy)
+{
+	device_lock_assert(dev);
+	if (device_trust_policy_frozen())
+		return policy == dev->trust_policy ? 0 : -EBUSY;
+	if (dev->p->dead)
+		return -ENODEV;
+	if (policy == dev->trust_policy)
+		goto set_policy;
+
+	if (dev->driver)
+		return -EBUSY;
+
+	switch (dev->p->trust_state) {
+	case DEVICE_TRUST_SELECTABLE:
+		if (policy == DEVICE_TRUST_POLICY_BLOCKED)
+			dev->p->trust_state = DEVICE_TRUST_WAITING;
+		break;
+	case DEVICE_TRUST_WAITING:
+		if (policy != DEVICE_TRUST_POLICY_ADVERSARY &&
+		    policy != DEVICE_TRUST_POLICY_UNRESTRICTED)
+			return -EBUSY;
+		dev->p->trust_state = DEVICE_TRUST_AUTHORIZED;
+		break;
+	default:
+		return -EBUSY;
+	}
+set_policy:
+	WRITE_ONCE(dev->trust_policy, policy);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(device_trust_set_policy_locked);
+
+/**
+ * device_trust_set_policy - Request a trust policy for a device
+ * @dev: registered device
+ * @policy: requested policy
+ *
+ * Apply admission rules, including on legacy boots where trust_policy writes
+ * are unavailable. Buses with their own authorization interfaces may use this
+ * API. Callers of device_driver_attach_unrestricted() must preserve its invariants.
+ *
+ * Takes the device lock except in explicit unrestricted mode, where a same-policy
+ * request is a no-op and does not override a pending driver boot rule.
+ *
+ * Return: 0 on success, -EBUSY if the policy can no longer change, or
+ * -ENODEV if the device is being removed outside explicit unrestricted mode.
+ */
+int device_trust_set_policy(struct device *dev, enum device_trust_policy policy)
+{
+	int ret;
+
+	if (device_trust_policy_frozen())
+		return policy == READ_ONCE(dev->trust_policy) ? 0 : -EBUSY;
+
+	device_lock(dev);
+	ret = device_trust_set_policy_locked(dev, policy);
+	device_unlock(dev);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(device_trust_set_policy);
+
+static ssize_t trust_policy_store(struct device *dev,
+				  const struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	int policy, ret;
+
+	policy = sysfs_match_string(device_trust_policy_names, buf);
+	if (policy < 0)
+		return policy;
+
+	if (!device_trust_configured)
+		return policy == READ_ONCE(dev->trust_policy) ? count : -EBUSY;
+
+	ret = device_trust_set_policy(dev, policy);
+
+	return ret ? ret : count;
+}
+static DEVICE_ATTR_RW(trust_policy);
+
+static struct attribute *device_trust_attrs[] = {
+	&dev_attr_trust.attr,
+	&dev_attr_trust_policy.attr,
+	NULL,
+};
+
+const struct attribute_group device_trust_attr_group = {
+	.attrs = device_trust_attrs,
+};
 static int __init device_trust_default_setup(char *str)
 {
 	int policy = match_string(device_trust_policy_names,
