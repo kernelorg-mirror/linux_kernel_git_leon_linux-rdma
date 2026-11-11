@@ -616,6 +616,16 @@ static inline struct pci_dev *to_pci_dev(const struct device *dev)
 {
 	return container_of(dev, struct pci_dev, dev);
 }
+
+static inline bool
+pci_dev_default_is_restricted(const struct pci_dev *pdev)
+{
+	enum device_trust_policy policy = READ_ONCE(pdev->dev.trust_policy);
+
+	return policy == DEVICE_TRUST_POLICY_BLOCKED ||
+	       policy == DEVICE_TRUST_POLICY_ADVERSARY;
+}
+
 #define for_each_pci_dev(d) while ((d = pci_get_device(PCI_ANY_ID, PCI_ANY_ID, d)) != NULL)
 #define for_each_pci_dev_reverse(d) \
 	while ((d = pci_get_device_reverse(PCI_ANY_ID, PCI_ANY_ID, d)) != NULL)

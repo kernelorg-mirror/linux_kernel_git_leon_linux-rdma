@@ -246,11 +246,11 @@ Adversary does not require an IOMMU. Without an IOMMU group, or with IOMMU
 support compiled out, binding uses the platform's normal DMA configuration.
 Adversary policy alone does not provide DMA isolation.
 
-Device trust admission does not change DMA handling, IOMMU domain selection,
-or ATS permission according to active trust. Those remain governed by existing
-bus and platform mechanisms. Integrating them with admission is separate
-work. A setup failure after commitment leaves the chosen mode fixed; it
-cannot fall back to unrestricted.
+The initial target is confidential computing guests without an IOMMU.
+On systems with an IOMMU, policy changes after discovery are not yet
+synchronized with domain selection or ATS configuration. That integration
+is follow-up work. A setup failure after commitment leaves the chosen mode
+fixed; it cannot fall back to unrestricted.
 
 Drivers that manage DMA themselves must provide their own containment.
 Drivers that do not use DMA need no domain.
