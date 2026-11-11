@@ -541,6 +541,25 @@ static int __device_bind_driver(struct device *dev)
 	return 0;
 }
 
+static int device_bind_driver_locked(struct device *dev)
+{
+	bool admitted = dev->trust_level != DEVICE_TRUST_BLOCKED;
+	int ret;
+
+	if (dev->bus && dev->bus->trust_resolve)
+		return -EOPNOTSUPP;
+
+	ret = device_trust_prepare(dev, dev->driver);
+	if (ret)
+		return ret;
+
+	ret = __device_bind_driver(dev);
+	/* An early claimant remains active until its bus finishes cleanup. */
+	if (ret && !admitted)
+		device_trust_clear(dev);
+	return ret;
+}
+
 /**
  * device_bind_driver - bind a driver to one device.
  * @dev: device.
@@ -561,14 +580,14 @@ int device_bind_driver(struct device *dev)
 	int ret;
 
 	mutex_lock(&dev->p->driver_lock);
-	ret = __device_bind_driver(dev);
+	ret = device_bind_driver_locked(dev);
 	mutex_unlock(&dev->p->driver_lock);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(device_bind_driver);
 
 /**
- * device_driver_attach_unrestricted - attach a driver using subsystem serialization
+ * device_driver_attach_unrestricted - attach under a fixed unrestricted policy
  * @drv: driver to attach
  * @dev: device to attach it to
  *
@@ -582,6 +601,12 @@ EXPORT_SYMBOL_GPL(device_bind_driver);
  * returns -EBUSY instead of waiting under the caller's subsystem locks.
  * It calls the bus or driver probe callback and publishes the binding without
  * performing the normal driver-core DMA, pinctrl or power-domain setup.
+ *
+ * Requires an unrestricted operating level and either no device trust boot options
+ * or device_trust.default=unrestricted. Changes through trust_policy are disabled
+ * in both modes. The caller must exclude bus-specific policy changes.
+ * When driver boot rules exist, an explicit device boot rule must exclude
+ * them for @dev. Buses with a trust resolver must use device_driver_attach().
  *
  * Return: 0 on success, -EAGAIN if registration or probing must be retried,
  * or another negative error before binding.
@@ -608,6 +633,10 @@ int device_driver_attach_unrestricted(const struct device_driver *drv,
 		goto unlock;
 	}
 
+	ret = device_trust_prepare_unrestricted(dev, drv);
+	if (ret)
+		goto unlock;
+
 	device_set_driver(dev, drv);
 	if (dev->bus->probe)
 		ret = dev->bus->probe(dev);
@@ -632,6 +661,7 @@ clear_driver:
 	devres_release_all(dev);
 	device_set_driver(dev, NULL);
 	dev_set_drvdata(dev, NULL);
+	WRITE_ONCE(dev->trust_level, DEVICE_TRUST_BLOCKED);
 	if (ret == -EPROBE_DEFER)
 		ret = -EAGAIN;
 unlock:
@@ -763,6 +793,14 @@ static int really_probe(struct device *dev, const struct device_driver *drv)
 	}
 
 re_probe:
+	ret = device_trust_prepare(dev, drv);
+	if (ret) {
+		device_links_no_driver(dev);
+		/* Report it like a probe error so a scan tries the next driver. */
+		ret = -ret;
+		goto done;
+	}
+
 	device_set_driver(dev, drv);
 
 	/* If using pinctrl, bind pins now before probing */
@@ -829,6 +867,7 @@ re_probe:
 		if (dev->bus && dev->bus->dma_cleanup)
 			dev->bus->dma_cleanup(dev);
 		device_unbind_cleanup(dev);
+		device_trust_clear(dev);
 
 		goto re_probe;
 	}
@@ -855,6 +894,7 @@ sysfs_failed:
 pinctrl_bind_failed:
 	device_links_no_driver(dev);
 	device_unbind_cleanup(dev);
+	device_trust_clear(dev);
 done:
 	return ret;
 }
@@ -1196,7 +1236,7 @@ static int __device_attach(struct device *dev, bool allow_async)
 			ret = 1;
 			goto out_unlock;
 		}
-		ret = __device_bind_driver(dev);
+		ret = device_bind_driver_locked(dev);
 		if (ret == 0)
 			ret = 1;
 		else {
@@ -1448,6 +1488,7 @@ static void __device_release_driver(struct device *dev, struct device *parent)
 			dev->bus->dma_cleanup(dev);
 
 		device_unbind_cleanup(dev);
+		device_trust_clear(dev);
 		device_links_driver_cleanup(dev);
 
 		klist_remove(&dev->p->knode_driver);

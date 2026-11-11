@@ -1259,6 +1259,20 @@ Kernel parameters
 	dell_smm_hwmon.fan_max=
 			[HW] Maximum configurable fan speed.
 
+	device_trust	[KNL]
+			Enable device trust with blocked as the implicit default.
+
+	device_trust.default=
+			[KNL] Set initial trust policy for all devices, including
+			hotplugged devices.
+			Format: { default | blocked | adversary | unrestricted }
+			No trust options selects legacy unrestricted mode, preserving
+			bus policy and existing authorization. Otherwise blocked is the
+			implicit default. An explicit value wins regardless of option
+			order. default preserves bus policy; other values replace it.
+			unrestricted disables runtime policy changes.
+			See Documentation/driver-api/driver-model/device-trust.rst.
+
 	dfltcc=		[HW,S390]
 			Format: { on | off | def_only | inf_only | always }
 			on:       s390 zlib hardware support for compression on

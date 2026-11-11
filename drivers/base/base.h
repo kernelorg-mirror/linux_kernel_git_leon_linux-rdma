@@ -10,6 +10,7 @@
  * shared outside of the drivers/base/ directory.
  *
  */
+#include <linux/device/trust.h>
 #include <linux/notifier.h>
 
 /**
@@ -89,6 +90,27 @@ struct driver_private {
 #define to_driver(obj) container_of(obj, struct driver_private, kobj)
 
 /**
+ * enum device_trust_state - Device trust authorization and commitment
+ * @DEVICE_TRUST_SELECTABLE: No authorization or commitment. When runtime
+ *	policy changes are enabled, any policy can be selected. Selecting
+ *	blocked enters %DEVICE_TRUST_WAITING.
+ * @DEVICE_TRUST_WAITING: Blocked policy without commitment. Runtime
+ *	authorization requires adversary or unrestricted and enters
+ *	%DEVICE_TRUST_AUTHORIZED; selecting default is rejected.
+ * @DEVICE_TRUST_AUTHORIZED: Adversary or unrestricted selected from
+ *	%DEVICE_TRUST_WAITING. Policy is fixed, but no operating level has
+ *	been committed.
+ * @DEVICE_TRUST_COMMITTED: Policy and operating level accepted before
+ *	driver setup. Both remain fixed through setup failure and unbind.
+ */
+enum device_trust_state {
+	DEVICE_TRUST_SELECTABLE,
+	DEVICE_TRUST_WAITING,
+	DEVICE_TRUST_AUTHORIZED,
+	DEVICE_TRUST_COMMITTED,
+};
+
+/**
  * struct device_private - structure to hold the private to the driver core
  *			   portions of the device structure.
  * @klist_children: klist containing all children of this device
@@ -106,6 +128,7 @@ struct driver_private {
  * @device: pointer back to the struct device that this structure is
  *	    associated with.
  * @driver_lock: serializes binding and removal, including compatibility attach
+ * @trust_state: policy admission state
  * @dead: This device is currently either in the process of or has been
  *	  removed from the system. Any asynchronous events scheduled for this
  *	  device should exit without taking any action.
@@ -124,6 +147,7 @@ struct device_private {
 	struct device *device;
 	/* Taken after the device mutex, except by compatibility attach. */
 	struct mutex driver_lock;
+	enum device_trust_state trust_state;
 	u8 dead:1;
 };
 #define to_device_private_parent(obj)	\
@@ -168,6 +192,13 @@ int bus_add_driver(struct device_driver *drv);
 void bus_remove_driver(struct device_driver *drv);
 void device_release_driver_internal(struct device *dev, const struct device_driver *drv,
 				    struct device *parent);
+
+int device_private_init(struct device *dev);
+
+/* Unrestricted-only manual attachment uses the caller's subsystem serialization. */
+void device_trust_init_state(struct device *dev);
+int device_trust_prepare_unrestricted(struct device *dev,
+				      const struct device_driver *drv);
 
 void driver_detach(const struct device_driver *drv);
 void driver_deferred_probe_del(struct device *dev);

@@ -583,6 +583,12 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 		iface->claim_owner = driver->driver.owner;
 	}
 
+	retval = device_trust_prepare(dev, &driver->driver);
+	if (retval) {
+		usb_put_claim_owner(iface);
+		goto unlock;
+	}
+
 	dev->driver = &driver->driver;
 	usb_set_intfdata(iface, data);
 	iface->needs_binding = 0;
@@ -620,6 +626,7 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 		if (driver->supports_autosuspend)
 			pm_runtime_disable(dev);
 		pm_runtime_set_suspended(dev);
+		device_trust_clear(dev);
 	}
 
 unlock:
@@ -635,6 +642,7 @@ static void usb_unbind_claim(struct usb_interface *iface)
 	usb_unbind_interface(dev);
 	dev_set_drvdata(dev, NULL);
 	dev->driver = NULL;
+	device_trust_clear(dev);
 	usb_put_claim_owner(iface);
 }
 

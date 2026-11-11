@@ -2237,6 +2237,8 @@ free_interfaces:
 		pm_runtime_no_callbacks(&intf->dev);
 		dev_set_name(&intf->dev, "%d-%s:%d.%d", dev->bus->busnum,
 				dev->devpath, configuration, ifnum);
+		/* A sibling may claim the interface before it is registered */
+		device_trust_init(&intf->dev);
 		/*
 		 * Make sure the interface does not outlive its parent (e.g.
 		 * as needed for usb_queue_reset_device() and
@@ -2324,6 +2326,9 @@ free_interfaces:
 			get_device(&intf->dev);
 			if (unconfigure)
 				usb_set_configuration(dev, -1);
+			device_lock(&intf->dev);
+			device_trust_clear(&intf->dev);
+			device_unlock(&intf->dev);
 			module_put(claim_owner);
 			put_device(&intf->dev);
 			if (unconfigure) {
