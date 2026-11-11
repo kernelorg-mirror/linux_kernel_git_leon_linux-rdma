@@ -120,6 +120,13 @@ Deny interfaces per default::
 Per default the interface_authorized_default bit is 1.
 So all interfaces would authorized per default.
 
+With device trust enabled, an interface that is not authorized by default
+starts with the "blocked" trust policy, and writing 1 to its "authorized"
+attribute requests the "unrestricted" policy. Device and interface trust policies
+are independent: selecting "adversary" for a USB device does not select it
+for its interfaces. Set interface policies separately before their drivers
+bind, using boot rules when necessary.
+
 Note:
   If a deauthorized interface will be authorized so the driver probing must
   be triggered manually by writing INTERFACE to /sys/bus/usb/drivers_probe
@@ -127,3 +134,7 @@ Note:
 For drivers that need multiple interfaces all needed interfaces should be
 authorized first. After that the drivers should be probed.
 This avoids side effects.
+
+Driver boot rules apply when an interface is claimed, including before
+registration. An interface deauthorized through sysfs must still be
+authorized before it can be claimed.

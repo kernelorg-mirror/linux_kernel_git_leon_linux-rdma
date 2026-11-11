@@ -12,6 +12,11 @@ Description:
 
 		A deauthorized interface cannot be probed or claimed.
 
+		With device trust enabled at boot, an interface that is not
+		authorized by default starts with the "blocked" trust policy
+		(see sysfs-devices-trust). Writing 1 then requests the "unrestricted"
+		policy. Deauthorizing does not change the committed trust level.
+
 What:		/sys/bus/usb/devices/usbX/interface_authorized_default
 Date:		August 2015
 Description:

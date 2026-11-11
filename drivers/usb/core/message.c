@@ -1881,16 +1881,24 @@ void usb_deauthorize_interface(struct usb_interface *intf)
  * usb_authorize_interface - authorize an USB interface
  *
  * @intf: USB interface structure
+ *
+ * Return: 0 on success, or the error of the trust policy request.
  */
-void usb_authorize_interface(struct usb_interface *intf)
+int usb_authorize_interface(struct usb_interface *intf)
 {
 	struct device *dev = &intf->dev;
+	int ret = 0;
 
-	if (!intf->authorized) {
-		device_lock(dev);
-		intf->authorized = 1; /* authorize interface */
-		device_unlock(dev);
+	device_lock(dev);
+	if (device_policy_is_blocked(dev)) {
+		ret = device_trust_set_policy_locked(dev, DEVICE_TRUST_POLICY_UNRESTRICTED);
+		if (ret)
+			goto out_unlock;
 	}
+	intf->authorized = 1;
+out_unlock:
+	device_unlock(dev);
+	return ret;
 }
 
 static int usb_if_uevent(const struct device *dev, struct kobj_uevent_env *env)
@@ -2213,6 +2221,11 @@ free_interfaces:
 		intf->altsetting = intfc->altsetting;
 		intf->num_altsetting = intfc->num_altsetting;
 		intf->authorized = !!HCD_INTF_AUTHORIZED(hcd);
+		if (device_trust_enabled()) {
+			if (!intf->authorized)
+				intf->dev.trust_policy = DEVICE_TRUST_POLICY_BLOCKED;
+			intf->authorized = 1;
+		}
 		kref_get(&intfc->ref);
 
 		alt = usb_altnum_to_altsetting(intf, 0);

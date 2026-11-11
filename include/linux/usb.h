@@ -204,8 +204,8 @@ enum usb_wireless_status {
  *	has been deferred.
  * @needs_binding: flag set when the driver should be re-probed or unbound
  *	following a reset or suspend operation it doesn't support.
- * @authorized: This allows to (de)authorize individual interfaces instead
- *	a whole device in contrast to the device authorization.
+ * @authorized: USB authorization flag; trust policy may also restrict use,
+ *	see usb_interface_authorized().
  * @wireless_status: if the USB device uses a receiver/emitter combo, whether
  *	the emitter is connected.
  * @wireless_status_work: Used for scheduling wireless status changes
@@ -277,6 +277,11 @@ struct usb_interface {
 };
 
 #define to_usb_interface(__dev)	container_of_const(__dev, struct usb_interface, dev)
+
+static inline bool usb_interface_authorized(const struct usb_interface *intf)
+{
+	return intf->authorized && !device_policy_is_blocked(&intf->dev);
+}
 
 static inline void *usb_get_intfdata(struct usb_interface *intf)
 {
