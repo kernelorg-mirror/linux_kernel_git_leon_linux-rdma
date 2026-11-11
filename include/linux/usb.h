@@ -599,6 +599,7 @@ struct usb3_lpm_parameters {
  * @descriptor: USB device descriptor
  * @bos: USB device BOS descriptor set
  * @config: all of the device's configs
+ * @config_error: Result of the last configuration request.
  * @actconfig: the active configuration
  * @ep_in: array of IN endpoints
  * @ep_out: array of OUT endpoints
@@ -686,6 +687,7 @@ struct usb_device {
 	struct usb_host_config *config;
 
 	struct usb_host_config *actconfig;
+	int config_error;
 	struct usb_host_endpoint *ep_in[16];
 	struct usb_host_endpoint *ep_out[16];
 

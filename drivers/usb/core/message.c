@@ -2042,6 +2042,8 @@ static bool usb_has_claimant(struct usb_device *dev,
 	return false;
 }
 
+static int usb_set_configuration_internal(struct usb_device *dev, int configuration);
+
 /*
  * usb_set_configuration - Makes a particular device setting be current
  * @dev: the device whose configuration is being updated
@@ -2089,6 +2091,15 @@ static bool usb_has_claimant(struct usb_device *dev,
  * drivers currently known to the kernel.
  */
 int usb_set_configuration(struct usb_device *dev, int configuration)
+{
+	int ret = usb_set_configuration_internal(dev, configuration);
+
+	dev->config_error = ret;
+	return ret;
+}
+EXPORT_SYMBOL_GPL(usb_set_configuration);
+
+static int usb_set_configuration_internal(struct usb_device *dev, int configuration)
 {
 	int i, ret;
 	struct usb_host_config *cp = NULL;
@@ -2349,7 +2360,6 @@ free_interfaces:
 	usb_autosuspend_device(dev);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(usb_set_configuration);
 
 static LIST_HEAD(set_config_list);
 static DEFINE_SPINLOCK(set_config_lock);
