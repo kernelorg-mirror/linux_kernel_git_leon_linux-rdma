@@ -748,6 +748,11 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 #endif
 
 	dev->authorized = usb_dev_authorized(dev, usb_hcd);
+	if (device_trust_enabled()) {
+		if (!dev->authorized)
+			dev->dev.trust_policy = DEVICE_TRUST_POLICY_BLOCKED;
+		dev->authorized = 1;
+	}
 	trace_usb_alloc_dev(dev);
 	return dev;
 }

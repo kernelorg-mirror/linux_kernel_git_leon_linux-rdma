@@ -335,7 +335,7 @@ static int usb_probe_interface(struct device *dev)
 	if (usb_device_is_owned(udev))
 		return error;
 
-	if (udev->authorized == 0) {
+	if (!usb_device_authorized(udev)) {
 		dev_info(&intf->dev, "Device is not authorized for usage\n");
 		return error;
 	} else if (!usb_interface_authorized(intf)) {
@@ -1351,8 +1351,7 @@ static int usb_resume_device(struct usb_device *udev, pm_message_t msg)
 	if (udev->state == USB_STATE_NOTATTACHED)
 		goto done;
 
-	/* Can't resume it if it doesn't have a driver. */
-	if (udev->dev.driver == NULL) {
+	if (!udev->dev.driver && !device_trust_enabled()) {
 		status = -ENOTCONN;
 		goto done;
 	}
@@ -1367,7 +1366,10 @@ static int usb_resume_device(struct usb_device *udev, pm_message_t msg)
 	if (udev->quirks & USB_QUIRK_RESET_RESUME)
 		udev->reset_resume = 1;
 
-	udriver = to_usb_device_driver(udev->dev.driver);
+	if (udev->dev.driver)
+		udriver = to_usb_device_driver(udev->dev.driver);
+	else
+		udriver = &usb_generic_driver;
 	if (udriver->generic_subclass)
 		status = usb_generic_driver_resume(udev, msg);
 	if (status == 0 && udriver->resume)

@@ -617,11 +617,8 @@ struct usb3_lpm_parameters {
  * @persist_enabled:  USB_PERSIST enabled for this device
  * @reset_in_progress: the device is being reset
  * @have_langid: whether string_langid is valid
- * @authorized: policy has said we can use it;
- *	(user space) policy determines if we authorize this device to be
- *	used or not. By default, wired USB devices are authorized.
- *	WUSB devices are not, until we authorize them from user space.
- *	FIXME -- complete doc
+ * @authorized: USB authorization flag; trust policy may also restrict use,
+ *	see usb_device_authorized().
  * @authenticated: Crypto authentication passed
  * @tunnel_mode: Connection native or tunneled over USB4
  * @usb4_link: device link to the USB4 host interface
@@ -755,6 +752,11 @@ struct usb_device {
 };
 
 #define to_usb_device(__dev)	container_of_const(__dev, struct usb_device, dev)
+
+static inline bool usb_device_authorized(const struct usb_device *udev)
+{
+	return udev->authorized && !device_policy_is_blocked(&udev->dev);
+}
 
 static inline struct usb_device *__intf_to_usbdev(struct usb_interface *intf)
 {

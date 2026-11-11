@@ -2081,7 +2081,7 @@ static int usb_set_configuration_internal(struct usb_device *dev, int configurat
  * channels are available independently; and choosing between open
  * standard device protocols (like CDC) or proprietary ones.
  *
- * Note that a non-authorized device (dev->authorized == 0) will only
+ * Note that a non-authorized device (see usb_device_authorized()) will only
  * be put in unconfigured mode.
  *
  * Note that USB has an additional level of device configurability,
@@ -2115,7 +2115,7 @@ static int usb_set_configuration_internal(struct usb_device *dev, int configurat
 	struct usb_hcd *hcd = bus_to_hcd(dev->bus);
 	int n, nintf;
 
-	if (dev->authorized == 0 || configuration == -1)
+	if (!usb_device_authorized(dev) || configuration == -1)
 		configuration = 0;
 	else {
 		for (i = 0; i < dev->descriptor.bNumConfigurations; i++) {
@@ -2128,6 +2128,9 @@ static int usb_set_configuration_internal(struct usb_device *dev, int configurat
 	}
 	if ((!cp && configuration != 0))
 		return -EINVAL;
+	if (cp && device_trust_enabled() &&
+	    device_get_trust_level(&dev->dev) == DEVICE_TRUST_BLOCKED)
+		return -EPERM;
 
 	/* The USB spec says configuration 0 means unconfigured.
 	 * But if a device includes a configuration numbered 0,

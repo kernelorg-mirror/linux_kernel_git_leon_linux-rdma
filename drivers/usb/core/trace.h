@@ -27,7 +27,7 @@ DECLARE_EVENT_CLASS(usb_core_log_usb_device,
 		__entry->speed = udev->speed;
 		__entry->state = udev->state;
 		__entry->bus_mA = udev->bus_mA;
-		__entry->authorized = udev->authorized;
+		__entry->authorized = usb_device_authorized(udev);
 	),
 	TP_printk("usb %s speed %s state %s %dmA [%s]",
 		__get_str(name),

@@ -728,7 +728,7 @@ static ssize_t authorized_show(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
 	struct usb_device *usb_dev = to_usb_device(dev);
-	return sysfs_emit(buf, "%u\n", usb_dev->authorized);
+	return sysfs_emit(buf, "%u\n", usb_device_authorized(usb_dev));
 }
 
 /*

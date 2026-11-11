@@ -92,6 +92,32 @@ can fake descriptors and device info. Don't trust that. You are
 welcome.
 
 
+Device trust
+------------
+
+Without device trust boot options, USB authorization is unchanged. With
+device trust enabled, authorization uses the policy described in
+Documentation/driver-api/driver-model/device-trust.rst. A device that the
+authorized_default setting does not authorize starts with the "blocked"
+trust policy and reads 0 in "authorized". Boot device rules can replace
+this initial policy.
+
+Writing 1 to "authorized" for such a device requests the "unrestricted" policy and
+binds the device, which configures it. To operate it as an adversary,
+enable trust policy writes at boot, for example with
+``device_trust.default=default``, and write "adversary" to its
+"trust_policy" attribute before writing 1. The choice is fixed for the life
+of the device: writing 0 deconfigures it, and a later 1 configures it again
+at the same trust level.
+
+Configuration errors leave authorization granted. If setup failed and no
+configuration remains, write 1 again to retry, or use "bConfigurationValue"
+to select a configuration after the device driver has been admitted.
+Writing 1 preserves an existing configuration. As before, failure to choose
+a suitable configuration is not an authorization error; an explicit
+"bConfigurationValue" selection remains available.
+
+
 Interface authorization
 -----------------------
 

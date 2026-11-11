@@ -33,6 +33,19 @@ Description:
 		drivers, non-authorized one are not.  By default, wired
 		USB devices are authorized.
 
+		With device trust enabled at boot, a device that is not
+		authorized by default starts with the "blocked" trust policy
+		(see sysfs-devices-trust). Writing 1 requests the "unrestricted" policy
+		if the policy is blocked, then binds and configures the device.
+		Configuration errors leave authorization granted. If setup failed
+		and no configuration remains, write 1 again to retry, or select a
+		configuration through bConfigurationValue after driver admission.
+		Writing 1 preserves an existing configuration. Finding no suitable
+		configuration remains successful authorization without setup.
+		Writing 0 deconfigures it without changing its committed trust
+		level. Without trust boot options, the existing authorization
+		flow is unchanged.
+
 What:		/sys/bus/usb/drivers/.../new_id
 Date:		October 2011
 Contact:	linux-usb@vger.kernel.org

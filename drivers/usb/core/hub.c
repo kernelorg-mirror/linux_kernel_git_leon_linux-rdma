@@ -2770,7 +2770,8 @@ fail:
 int usb_deauthorize_device(struct usb_device *usb_dev)
 {
 	usb_lock_device(usb_dev);
-	if (usb_dev->authorized == 0)
+	if (!usb_dev->authorized &&
+	    (!device_trust_enabled() || !usb_dev->config_error))
 		goto out_unauthorized;
 
 	usb_dev->authorized = 0;
@@ -2784,17 +2785,41 @@ out_unauthorized:
 
 int usb_authorize_device(struct usb_device *usb_dev)
 {
+	bool attach;
 	int result = 0, c;
 
 	usb_lock_device(usb_dev);
-	if (usb_dev->authorized == 1)
-		goto out_authorized;
+	if (device_policy_is_blocked(&usb_dev->dev)) {
+		result = device_trust_set_policy_locked(&usb_dev->dev,
+							DEVICE_TRUST_POLICY_UNRESTRICTED);
+		if (result)
+			goto out_unlock;
+	}
+
+	attach = device_trust_enabled() && !usb_dev->dev.driver;
+	if (!attach && usb_dev->authorized == 1 &&
+	    (!device_trust_enabled() || !usb_dev->config_error ||
+	     usb_dev->actconfig))
+		goto out_unlock;
 
 	result = usb_autoresume_device(usb_dev);
 	if (result < 0) {
 		dev_err(&usb_dev->dev,
 			"can't autoresume for authorization: %d\n", result);
-		goto error_autoresume;
+		goto out_unlock;
+	}
+
+	if (attach) {
+		usb_dev->authorized = 1;
+		usb_dev->config_error = 0;
+		result = device_attach_locked(&usb_dev->dev);
+		if (result <= 0) {
+			if (result >= 0)
+				result = -ENODEV;
+		} else {
+			result = usb_dev->config_error;
+		}
+		goto out_autosuspend;
 	}
 
 	usb_dev->authorized = 1;
@@ -2813,10 +2838,10 @@ int usb_authorize_device(struct usb_device *usb_dev)
 	}
 	dev_info(&usb_dev->dev, "authorized to connect\n");
 
+out_autosuspend:
 	usb_autosuspend_device(usb_dev);
-error_autoresume:
-out_authorized:
-	usb_unlock_device(usb_dev);	/* complements locktree */
+out_unlock:
+	usb_unlock_device(usb_dev);
 	return result;
 }
 
