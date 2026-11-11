@@ -1489,6 +1489,9 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 			device_del(&interface->dev);
 		}
 
+		for (i = 0; i < dev->actconfig->desc.bNumInterfaces; i++)
+			usb_release_unregistered_interface(dev->actconfig->interface[i]);
+
 		/* Now that the interfaces are unbound, nobody should
 		 * try to access them.
 		 */
@@ -2020,6 +2023,25 @@ int usb_set_wireless_status(struct usb_interface *iface,
 }
 EXPORT_SYMBOL_GPL(usb_set_wireless_status);
 
+static bool usb_has_claimant(struct usb_device *dev,
+			     const struct device_driver *claimant)
+{
+	struct usb_host_config *config = dev->actconfig;
+	int i;
+
+	for (i = 0; i < config->desc.bNumInterfaces; i++) {
+		struct device *intf = &config->interface[i]->dev;
+		bool claimed;
+
+		device_lock(intf);
+		claimed = intf->driver == claimant;
+		device_unlock(intf);
+		if (claimed)
+			return true;
+	}
+	return false;
+}
+
 /*
  * usb_set_configuration - Makes a particular device setting be current
  * @dev: the device whose configuration is being updated
@@ -2270,6 +2292,7 @@ free_interfaces:
 	 */
 	for (i = 0; i < nintf; ++i) {
 		struct usb_interface *intf = cp->interface[i];
+		struct device_driver *claimant;
 		struct module *claim_owner;
 
 		if (intf->dev.of_node &&
@@ -2285,6 +2308,7 @@ free_interfaces:
 			intf->cur_altsetting->desc.bInterfaceNumber);
 		device_enable_async_suspend(&intf->dev);
 		device_lock(&intf->dev);
+		claimant = intf->dev.driver;
 		claim_owner = xchg(&intf->claim_owner, NULL);
 		device_unlock(&intf->dev);
 		ret = device_add(&intf->dev);
@@ -2293,7 +2317,22 @@ free_interfaces:
 			intf->unregistering = 1;
 			device_unlock(&intf->dev);
 		}
-		module_put(claim_owner);
+		if (claimant && (ret || !intf->dev.driver) &&
+		    usb_driver_release_refused_claim(intf, claimant)) {
+			bool unconfigure = usb_has_claimant(dev, claimant);
+
+			get_device(&intf->dev);
+			if (unconfigure)
+				usb_set_configuration(dev, -1);
+			module_put(claim_owner);
+			put_device(&intf->dev);
+			if (unconfigure) {
+				usb_autosuspend_device(dev);
+				return ret ? ret : -ENODEV;
+			}
+		} else {
+			module_put(claim_owner);
+		}
 		if (ret != 0) {
 			dev_err(&dev->dev, "device_add(%s) --> %d\n",
 				dev_name(&intf->dev), ret);

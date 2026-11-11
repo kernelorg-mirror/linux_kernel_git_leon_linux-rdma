@@ -488,7 +488,8 @@ static int usb_unbind_interface(struct device *dev)
 		/* Already in altsetting 0 so skip Set-Interface.
 		 * Just re-enable it without affecting the endpoint toggles.
 		 */
-		usb_enable_interface(udev, intf, false);
+		if (!intf->unregistering)
+			usb_enable_interface(udev, intf, false);
 	} else if (!error && !intf->dev.power.is_prepared) {
 		r = usb_set_interface(udev, intf->altsetting[0].
 				desc.bInterfaceNumber, 0);
