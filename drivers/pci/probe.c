@@ -2080,7 +2080,6 @@ int pci_setup_device(struct pci_dev *dev)
 	set_pcie_cxl(dev);
 
 	pci_set_default_trust_policy(dev);
-	dev->untrusted = device_policy_is_adversarial(&dev->dev);
 	device_trust_init(&dev->dev);
 
 	/* "Unknown power state" */

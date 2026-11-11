@@ -1901,10 +1901,11 @@ static int iommu_get_default_domain_type(struct iommu_group *group,
 		driver_type = iommu_get_def_domain_type(group, gdev->dev,
 							driver_type);
 
-		if (dev_is_pci(gdev->dev) && to_pci_dev(gdev->dev)->untrusted) {
+		if (dev_is_pci(gdev->dev) &&
+		    pci_dev_default_is_restricted(to_pci_dev(gdev->dev))) {
 			/*
-			 * No ARM32 using systems will set untrusted, it cannot
-			 * work.
+			 * No ARM32 using systems select a restricted trust
+			 * policy; it cannot work.
 			 */
 			if (WARN_ON(IS_ENABLED(CONFIG_ARM_DMA_USE_IOMMU)))
 				return -1;
@@ -1928,7 +1929,7 @@ static int iommu_get_default_domain_type(struct iommu_group *group,
 		if (driver_type && driver_type != IOMMU_DOMAIN_DMA) {
 			dev_err_ratelimited(
 				untrusted,
-				"Device is not trusted, but driver is overriding group %u to %s, refusing to probe.\n",
+				"Device trust policy restricts DMA, but driver is overriding group %u to %s, refusing to probe.\n",
 				group->id, iommu_domain_type_str(driver_type));
 			return -1;
 		}

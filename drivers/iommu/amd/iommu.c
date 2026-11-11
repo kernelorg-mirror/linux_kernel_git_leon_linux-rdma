@@ -3401,8 +3401,7 @@ static int amd_iommu_def_domain_type(struct device *dev)
 	if (!dev_is_pci(dev))
 		return 0;
 
-	/* Always use DMA domain for untrusted device */
-	if (to_pci_dev(dev)->untrusted)
+	if (pci_dev_default_is_restricted(to_pci_dev(dev)))
 		return IOMMU_DOMAIN_DMA;
 
 	/* Apply device specific quirks */
