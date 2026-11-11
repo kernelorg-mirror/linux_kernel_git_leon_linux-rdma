@@ -48,6 +48,7 @@ int device_trust_set_policy_locked(struct device *dev,
 				   enum device_trust_policy policy);
 int device_trust_set_policy(struct device *dev, enum device_trust_policy policy);
 enum device_trust_level device_get_trust_level(const struct device *dev);
+enum device_trust_level device_get_committed_trust_level(const struct device *dev);
 bool device_is_adversarial(const struct device *dev);
 
 #endif /* _DEVICE_TRUST_H_ */
