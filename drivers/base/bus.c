@@ -310,13 +310,18 @@ static ssize_t drivers_probe_store(const struct bus_type *bus,
 				   const char *buf, size_t count)
 {
 	struct device *dev;
-	int err = -EINVAL;
+	int err;
 
 	dev = bus_find_device_by_name(bus, NULL, buf);
 	if (!dev)
 		return -ENODEV;
-	if (bus_rescan_devices_helper(dev, NULL) == 0)
+	err = bus_rescan_devices_helper(dev, NULL);
+	if (!err)
 		err = count;
+	else if (err == -EPROBE_DEFER)
+		err = -EAGAIN;
+	else
+		err = -EINVAL;
 	put_device(dev);
 	return err;
 }
