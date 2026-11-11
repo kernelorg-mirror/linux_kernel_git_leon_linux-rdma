@@ -1513,6 +1513,7 @@ static void usb_serial_deregister(struct usb_serial_driver *device)
  * @serial_drivers: NULL-terminated array of pointers to drivers to be registered
  * @owner: owning module
  * @name: name of the usb_driver for this set of @serial_drivers
+ * @mod_name: name of the module containing the serial drivers
  * @id_table: list of all devices this @serial_drivers set binds to
  *
  * Registers all the drivers in the @serial_drivers array, and dynamically
@@ -1520,6 +1521,7 @@ static void usb_serial_deregister(struct usb_serial_driver *device)
  */
 int __usb_serial_register_drivers(struct usb_serial_driver *const serial_drivers[],
 				  struct module *owner, const char *name,
+				  const char *mod_name,
 				  const struct usb_device_id *id_table)
 {
 	int rc;
@@ -1559,7 +1561,7 @@ int __usb_serial_register_drivers(struct usb_serial_driver *const serial_drivers
 		}
 	}
 
-	rc = usb_register(udriver);
+	rc = usb_register_driver(udriver, owner, mod_name);
 	if (rc)
 		goto err_free_driver;
 
