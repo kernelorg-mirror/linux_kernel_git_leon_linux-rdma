@@ -105,6 +105,7 @@ struct driver_private {
  *			   dev_err_probe() for later retrieval via debugfs
  * @device: pointer back to the struct device that this structure is
  *	    associated with.
+ * @driver_lock: serializes binding and removal, including compatibility attach
  * @dead: This device is currently either in the process of or has been
  *	  removed from the system. Any asynchronous events scheduled for this
  *	  device should exit without taking any action.
@@ -121,6 +122,8 @@ struct device_private {
 	const struct device_driver *async_driver;
 	char *deferred_probe_reason;
 	struct device *device;
+	/* Taken after the device mutex, except by compatibility attach. */
+	struct mutex driver_lock;
 	u8 dead:1;
 };
 #define to_device_private_parent(obj)	\

@@ -526,6 +526,21 @@ static void driver_sysfs_remove(struct device *dev)
 	}
 }
 
+static int __device_bind_driver(struct device *dev)
+{
+	int ret;
+
+	ret = driver_sysfs_add(dev);
+	if (ret) {
+		bus_notify(dev, BUS_NOTIFY_DRIVER_NOT_BOUND);
+		return ret;
+	}
+
+	device_links_force_bind(dev);
+	driver_bound(dev);
+	return 0;
+}
+
 /**
  * device_bind_driver - bind a driver to one device.
  * @dev: device.
@@ -545,16 +560,85 @@ int device_bind_driver(struct device *dev)
 {
 	int ret;
 
-	ret = driver_sysfs_add(dev);
-	if (!ret) {
-		device_links_force_bind(dev);
-		driver_bound(dev);
-	}
-	else
-		bus_notify(dev, BUS_NOTIFY_DRIVER_NOT_BOUND);
+	mutex_lock(&dev->p->driver_lock);
+	ret = __device_bind_driver(dev);
+	mutex_unlock(&dev->p->driver_lock);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(device_bind_driver);
+
+/**
+ * device_driver_attach_unrestricted - attach a driver using subsystem serialization
+ * @drv: driver to attach
+ * @dev: device to attach it to
+ *
+ * This compatibility API must not be used in any new code. It prevents
+ * devices from using the device trust authorization infrastructure.
+ * New code must use device_driver_attach().
+ *
+ * Callers must provide their subsystem's existing manual-binding
+ * serialization. This function does not acquire device or parent locks.
+ * Binding and removal are serialized separately; an overlapping transaction
+ * returns -EBUSY instead of waiting under the caller's subsystem locks.
+ * It calls the bus or driver probe callback and publishes the binding without
+ * performing the normal driver-core DMA, pinctrl or power-domain setup.
+ *
+ * Return: 0 on success, -EAGAIN if registration or probing must be retried,
+ * or another negative error before binding.
+ */
+int device_driver_attach_unrestricted(const struct device_driver *drv,
+				      struct device *dev)
+{
+	int ret;
+
+	if (!device_is_registered(dev))
+		return -ENODEV;
+	if (!mutex_trylock(&dev->p->driver_lock))
+		return -EBUSY;
+	if (dev->p->dead) {
+		ret = -ENODEV;
+		goto unlock;
+	}
+	if (!dev_ready_to_probe(dev)) {
+		ret = -EAGAIN;
+		goto unlock;
+	}
+	if (dev->driver) {
+		ret = -EBUSY;
+		goto unlock;
+	}
+
+	device_set_driver(dev, drv);
+	if (dev->bus->probe)
+		ret = dev->bus->probe(dev);
+	else
+		ret = drv->probe(dev);
+	if (ret)
+		goto clear_driver;
+
+	ret = __device_bind_driver(dev);
+	if (ret)
+		goto bus_remove;
+
+	mutex_unlock(&dev->p->driver_lock);
+	return 0;
+
+bus_remove:
+	if (dev->bus->remove)
+		dev->bus->remove(dev);
+	else
+		drv->remove(dev);
+clear_driver:
+	devres_release_all(dev);
+	device_set_driver(dev, NULL);
+	dev_set_drvdata(dev, NULL);
+	if (ret == -EPROBE_DEFER)
+		ret = -EAGAIN;
+unlock:
+	mutex_unlock(&dev->p->driver_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(device_driver_attach_unrestricted);
 
 static atomic_t probe_count = ATOMIC_INIT(0);
 static DECLARE_WAIT_QUEUE_HEAD(probe_waitqueue);
@@ -1035,15 +1119,15 @@ static int __device_attach_driver(struct device_driver *drv, void *_data)
  * @dev: Device we will update driver info for
  * @parent: Parent device. Needed if the device type requires parent lock
  *
- * This function will take the required locks for manipulating dev->drv.
- * Normally this will just be the @dev lock, but when called for a USB
- * interface, @parent lock will be held as well.
+ * Take the device lock and binding lock, together with the parent lock
+ * when the device type requires it.
  */
 static void __device_driver_lock(struct device *dev, struct device *parent)
 {
 	if (dev->type && dev->type->need_parent_lock && parent)
 		device_lock(parent);
 	device_lock(dev);
+	mutex_lock(&dev->p->driver_lock);
 }
 
 /*
@@ -1051,12 +1135,12 @@ static void __device_driver_lock(struct device *dev, struct device *parent)
  * @dev: Device we will update driver info for
  * @parent: Parent device. Needed if the device type requires parent lock
  *
- * This function will release the required locks for manipulating dev->drv.
- * Normally this will just be the @dev lock, but when called for a
- * USB interface, @parent lock will be released as well.
+ * Release the binding and device locks, together with the parent lock
+ * when the device type requires it.
  */
 static void __device_driver_unlock(struct device *dev, struct device *parent)
 {
+	mutex_unlock(&dev->p->driver_lock);
 	device_unlock(dev);
 	if (dev->type && dev->type->need_parent_lock && parent)
 		device_unlock(parent);
@@ -1104,6 +1188,7 @@ static int __device_attach(struct device *dev, bool allow_async)
 	bool async = false;
 
 	device_lock(dev);
+	mutex_lock(&dev->p->driver_lock);
 	if (dev->p->dead) {
 		goto out_unlock;
 	} else if (dev->driver) {
@@ -1111,7 +1196,7 @@ static int __device_attach(struct device *dev, bool allow_async)
 			ret = 1;
 			goto out_unlock;
 		}
-		ret = device_bind_driver(dev);
+		ret = __device_bind_driver(dev);
 		if (ret == 0)
 			ret = 1;
 		else {
@@ -1149,6 +1234,7 @@ static int __device_attach(struct device *dev, bool allow_async)
 			pm_runtime_put(dev->parent);
 	}
 out_unlock:
+	mutex_unlock(&dev->p->driver_lock);
 	device_unlock(dev);
 	if (async && !async_schedule_dev_nocall(__device_attach_async_helper, dev)) {
 		put_device(dev);
@@ -1285,11 +1371,13 @@ static int __driver_attach(struct device *dev, void *data)
 		 */
 		dev_dbg(dev, "probing driver %s asynchronously\n", drv->name);
 		device_lock(dev);
+		mutex_lock(&dev->p->driver_lock);
 		if (!dev->driver && !dev->p->async_driver) {
 			get_device(dev);
 			dev->p->async_driver = drv;
 			async = true;
 		}
+		mutex_unlock(&dev->p->driver_lock);
 		device_unlock(dev);
 		if (async)
 			async_schedule_dev(__driver_attach_async_helper, dev);
@@ -1374,6 +1462,9 @@ void device_release_driver_internal(struct device *dev,
 				    const struct device_driver *drv,
 				    struct device *parent)
 {
+	if (!dev->p)
+		return;
+
 	__device_driver_lock(dev, parent);
 
 	if (!drv || drv == dev->driver)

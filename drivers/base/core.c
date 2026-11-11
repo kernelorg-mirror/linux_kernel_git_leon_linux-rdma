@@ -1315,13 +1315,23 @@ static ssize_t waiting_for_supplier_show(struct device *dev,
 					 const struct device_attribute *attr,
 					 char *buf)
 {
+	struct kernfs_node *kn;
+	ssize_t ret = -ENODEV;
 	bool val;
 
+	kn = sysfs_break_active_protection(&dev->kobj, &attr->attr);
+	if (!kn)
+		return -ENODEV;
+
 	device_lock(dev);
-	scoped_guard(mutex, &fwnode_link_lock)
-		val = !!fwnode_links_check_suppliers(dev->fwnode);
+	if (dev_ready_to_probe(dev) && !dev->p->dead) {
+		scoped_guard(mutex, &fwnode_link_lock)
+			val = !!fwnode_links_check_suppliers(dev->fwnode);
+		ret = sysfs_emit(buf, "%u\n", val);
+	}
 	device_unlock(dev);
-	return sysfs_emit(buf, "%u\n", val);
+	sysfs_unbreak_active_protection(kn);
+	return ret;
 }
 static const DEVICE_ATTR_RO(waiting_for_supplier);
 
@@ -3609,6 +3619,9 @@ static int device_private_init(struct device *dev)
 	if (!dev->p)
 		return -ENOMEM;
 	dev->p->device = dev;
+	mutex_init(&dev->p->driver_lock);
+	/* Driver callbacks can bind or unbind child devices. */
+	lockdep_set_novalidate_class(&dev->p->driver_lock);
 	klist_init(&dev->p->klist_children, klist_children_get,
 		   klist_children_put);
 	INIT_LIST_HEAD(&dev->p->deferred_probe);
@@ -3889,6 +3902,8 @@ EXPORT_SYMBOL_GPL(put_device);
 
 bool kill_device(struct device *dev)
 {
+	bool killed = false;
+
 	/*
 	 * Require the device lock and set the "dead" flag to guarantee that
 	 * the update behavior is consistent with the other bitfields near
@@ -3898,10 +3913,13 @@ bool kill_device(struct device *dev)
 	 */
 	device_lock_assert(dev);
 
-	if (dev->p->dead)
-		return false;
-	dev->p->dead = true;
-	return true;
+	mutex_lock(&dev->p->driver_lock);
+	if (!dev->p->dead) {
+		dev->p->dead = true;
+		killed = true;
+	}
+	mutex_unlock(&dev->p->driver_lock);
+	return killed;
 }
 EXPORT_SYMBOL_GPL(kill_device);
 
