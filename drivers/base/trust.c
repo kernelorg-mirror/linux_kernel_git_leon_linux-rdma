@@ -43,6 +43,11 @@ static int __init device_trust_detect_setup(char *str)
 }
 __setup("device_trust", device_trust_detect_setup);
 
+static bool device_trust_unrestricted_allowed(const struct device *dev);
+
+static void device_trust_init_driver_policy(struct device *dev,
+					   const struct device_driver *drv);
+
 void device_trust_init_state(struct device *dev)
 {
 	if (dev->trust_committed_level != DEVICE_TRUST_BLOCKED)
@@ -59,8 +64,8 @@ static int __device_trust_prepare(struct device *dev,
 	enum device_trust_level level;
 	int ret;
 
+	device_trust_init_driver_policy(dev, drv);
 	policy = dev->trust_policy;
-
 	if (policy == DEVICE_TRUST_POLICY_BLOCKED)
 		return -EPERM;
 	if (dev->bus && dev->bus->trust_resolve) {
@@ -115,7 +120,7 @@ EXPORT_SYMBOL_GPL(device_trust_prepare);
 int device_trust_prepare_unrestricted(struct device *dev,
 				      const struct device_driver *drv)
 {
-	if (device_trust_default_policy != DEVICE_TRUST_POLICY_UNRESTRICTED)
+	if (!device_trust_unrestricted_allowed(dev))
 		return -EPERM;
 
 	return __device_trust_prepare(dev, drv, true);
@@ -236,6 +241,7 @@ int device_trust_set_policy_locked(struct device *dev,
 	}
 set_policy:
 	WRITE_ONCE(dev->trust_policy, policy);
+	dev->p->trust_policy_override = true;
 	return 0;
 }
 EXPORT_SYMBOL_GPL(device_trust_set_policy_locked);
@@ -299,10 +305,11 @@ const struct attribute_group device_trust_attr_group = {
 };
 
 static const char *device_trust_cmdline __ro_after_init;
+static const char *device_trust_driver_cmdline __ro_after_init;
 
 static int device_trust_parse_policy(const char *options, const char *target_bus,
 				     const char *target_name,
-				     enum device_trust_policy *policy)
+				     enum device_trust_policy *policy, bool driver_name)
 {
 	enum device_trust_policy selected = DEVICE_TRUST_POLICY_DEFAULT;
 	const char *entry = options;
@@ -326,7 +333,8 @@ static int device_trust_parse_policy(const char *options, const char *target_bus
 			return -EINVAL;
 
 		for (p = entry; p < end; p++)
-			if (isspace(*p) || iscntrl(*p) || *p == '"')
+			if (iscntrl(*p) || *p == '"' ||
+			    (isspace(*p) && (!driver_name || p < name || p >= level)))
 				return -EINVAL;
 
 		for (i = 0; i < ARRAY_SIZE(device_trust_policy_names); i++)
@@ -361,9 +369,57 @@ VISIBLE_IF_KUNIT int device_trust_parse_cmdline(const char *options,
 						enum device_trust_policy *policy)
 {
 	return device_trust_parse_policy(options, dev && dev->bus ? dev->bus->name : NULL,
-					 dev ? dev_name(dev) : NULL, policy);
+					 dev ? dev_name(dev) : NULL, policy, false);
 }
 EXPORT_SYMBOL_IF_KUNIT(device_trust_parse_cmdline);
+
+VISIBLE_IF_KUNIT int device_trust_parse_driver_cmdline(const char *options,
+						       const struct device_driver *drv,
+						       enum device_trust_policy *policy)
+{
+	return device_trust_parse_policy(options, drv ? drv->bus->name : NULL,
+					 drv ? kobject_name(&drv->p->kobj) : NULL,
+					 policy, true);
+}
+EXPORT_SYMBOL_IF_KUNIT(device_trust_parse_driver_cmdline);
+
+static bool device_trust_unrestricted_allowed(const struct device *dev)
+{
+	if (device_trust_default_policy != DEVICE_TRUST_POLICY_UNRESTRICTED)
+		return false;
+
+	/* Driver rules can otherwise change policy outside subsystem locks. */
+	return !device_trust_driver_cmdline ||
+		(device_trust_cmdline &&
+		 device_trust_parse_cmdline(device_trust_cmdline, dev, NULL) > 0);
+}
+
+VISIBLE_IF_KUNIT void device_trust_apply_driver_policy(struct device *dev,
+						     const struct device_driver *drv,
+						     const char *options)
+{
+	enum device_trust_policy policy;
+
+	if (!options || dev->p->trust_policy_override ||
+	    (dev->p->trust_state != DEVICE_TRUST_SELECTABLE &&
+	     dev->p->trust_state != DEVICE_TRUST_WAITING))
+		return;
+
+	if (device_trust_parse_driver_cmdline(options, drv, &policy) <= 0)
+		return;
+
+	WRITE_ONCE(dev->trust_policy, policy);
+	dev->p->trust_state = policy == DEVICE_TRUST_POLICY_BLOCKED ?
+		DEVICE_TRUST_WAITING : DEVICE_TRUST_SELECTABLE;
+	dev->p->trust_policy_override = true;
+}
+EXPORT_SYMBOL_IF_KUNIT(device_trust_apply_driver_policy);
+
+static void device_trust_init_driver_policy(struct device *dev,
+					   const struct device_driver *drv)
+{
+	device_trust_apply_driver_policy(dev, drv, device_trust_driver_cmdline);
+}
 
 static int __init device_trust_setup(char *str)
 {
@@ -378,6 +434,19 @@ static int __init device_trust_setup(char *str)
 	return 1;
 }
 __setup("device_trust=", device_trust_setup);
+
+static int __init device_trust_driver_setup(char *str)
+{
+	device_trust_configure();
+	if (device_trust_parse_driver_cmdline(str, NULL, NULL) < 0) {
+		pr_warn("device_trust: ignoring invalid driver policy list '%s'\n", str);
+		return 1;
+	}
+
+	device_trust_driver_cmdline = str;
+	return 1;
+}
+__setup("device_trust.driver=", device_trust_driver_setup);
 
 static int __init device_trust_default_setup(char *str)
 {
@@ -401,8 +470,10 @@ VISIBLE_IF_KUNIT void device_trust_apply_boot_policy(struct device *dev,
 {
 	if (policy != DEVICE_TRUST_POLICY_DEFAULT)
 		dev->trust_policy = policy;
-	if (options)
-		device_trust_parse_cmdline(options, dev, &dev->trust_policy);
+	if (options &&
+	    device_trust_parse_cmdline(options, dev, &dev->trust_policy) > 0 &&
+	    dev->p)
+		dev->p->trust_policy_override = true;
 }
 EXPORT_SYMBOL_IF_KUNIT(device_trust_apply_boot_policy);
 
@@ -412,7 +483,8 @@ EXPORT_SYMBOL_IF_KUNIT(device_trust_apply_boot_policy);
  */
 void device_trust_init(struct device *dev)
 {
-	if (dev->trust_committed_level != DEVICE_TRUST_BLOCKED)
+	if (dev->trust_committed_level != DEVICE_TRUST_BLOCKED ||
+	    (dev->p && dev->p->trust_policy_override))
 		return;
 
 	if (device_trust_configured)

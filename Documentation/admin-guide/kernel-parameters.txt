@@ -1268,12 +1268,15 @@ Kernel parameters
 			Format: <bus>:<device>=<policy>[,...]
 			Names match exactly as in /sys/bus/<bus>/devices/<device>.
 			Policies are default, blocked, adversary, and unrestricted.
-			Entries override bus policy and device_trust.default.
+			Entries override bus policy, device_trust.default, and
+			device_trust.driver.
 			See Documentation/driver-api/driver-model/device-trust.rst.
 
 	device_trust.default=
 			[KNL] Set initial trust policy for devices without a
 			matching device_trust= entry, including hotplugged devices.
+			A matching device_trust.driver= rule can replace this
+			initial policy at the first binding attempt.
 			Format: { default | blocked | adversary | unrestricted }
 			No trust options selects legacy unrestricted mode, preserving
 			bus policy and existing authorization. Otherwise blocked is the
@@ -1281,6 +1284,15 @@ Kernel parameters
 			order. default preserves bus policy; other values replace it.
 			unrestricted disables runtime policy changes.
 			See Documentation/driver-api/driver-model/device-trust.rst.
+
+	device_trust.driver=
+			[KNL] Set initial device trust policy by driver name,
+			including for drivers built into the kernel.
+			Format: <bus>:<driver>=<policy>[,...]
+			Names match exactly as in /sys/bus/<bus>/drivers/<driver>.
+			Quote the option value for driver names containing spaces.
+			Policies are default, blocked, adversary, and unrestricted.
+			Rules remain available for hotplug and modules.
 
 	dfltcc=		[HW,S390]
 			Format: { on | off | def_only | inf_only | always }
