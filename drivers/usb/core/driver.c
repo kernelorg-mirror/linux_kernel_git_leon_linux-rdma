@@ -561,7 +561,7 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 
 	device_lock(dev);
 
-	if (!iface->authorized ||
+	if (!iface->authorized || iface->unregistering ||
 	    (dev->of_node && !of_device_is_available(dev->of_node))) {
 		retval = -ENODEV;
 		goto unlock;

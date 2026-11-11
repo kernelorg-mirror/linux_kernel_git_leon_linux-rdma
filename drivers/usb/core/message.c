@@ -1468,8 +1468,13 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 		 * bandwidth_mutex, we have to mark all the interfaces
 		 * before unregistering any of them.
 		 */
-		for (i = 0; i < dev->actconfig->desc.bNumInterfaces; i++)
-			dev->actconfig->interface[i]->unregistering = 1;
+		for (i = 0; i < dev->actconfig->desc.bNumInterfaces; i++) {
+			struct usb_interface *intf = dev->actconfig->interface[i];
+
+			device_lock(&intf->dev);
+			intf->unregistering = 1;
+			device_unlock(&intf->dev);
+		}
 
 		for (i = 0; i < dev->actconfig->desc.bNumInterfaces; i++) {
 			struct usb_interface	*interface;
@@ -2278,6 +2283,11 @@ free_interfaces:
 			intf->cur_altsetting->desc.bInterfaceNumber);
 		device_enable_async_suspend(&intf->dev);
 		ret = device_add(&intf->dev);
+		if (ret) {
+			device_lock(&intf->dev);
+			intf->unregistering = 1;
+			device_unlock(&intf->dev);
+		}
 		if (ret != 0) {
 			dev_err(&dev->dev, "device_add(%s) --> %d\n",
 				dev_name(&intf->dev), ret);
