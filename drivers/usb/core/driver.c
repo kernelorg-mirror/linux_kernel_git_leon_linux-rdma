@@ -612,6 +612,15 @@ unlock:
 }
 EXPORT_SYMBOL_GPL(usb_driver_claim_interface);
 
+static void usb_unbind_claim(struct usb_interface *iface)
+{
+	struct device *dev = &iface->dev;
+
+	usb_unbind_interface(dev);
+	dev_set_drvdata(dev, NULL);
+	dev->driver = NULL;
+}
+
 /**
  * usb_driver_release_interface - unbind a driver from an interface
  * @driver: the driver to be unbound
@@ -631,27 +640,25 @@ void usb_driver_release_interface(struct usb_driver *driver,
 {
 	struct device *dev = &iface->dev;
 
-	/* this should never happen, don't release something that's not ours */
-	if (!dev->driver || dev->driver != &driver->driver)
-		return;
-
-	/* don't release from within disconnect() */
+	/* Avoid recursive locking from disconnect(). */
 	if (iface->condition != USB_INTERFACE_BOUND)
 		return;
+
+	device_lock(dev);
+	if (dev->driver != &driver->driver ||
+	    iface->condition != USB_INTERFACE_BOUND)
+		goto unlock;
 	iface->condition = USB_INTERFACE_UNBINDING;
 
-	/* Release via the driver core only if the interface
-	 * has already been registered
-	 */
-	if (device_is_registered(dev)) {
-		device_release_driver(dev);
-	} else {
-		device_lock(dev);
-		usb_unbind_interface(dev);
-		dev_set_drvdata(dev, NULL);
-		dev->driver = NULL;
+	if (device_is_bound(dev)) {
 		device_unlock(dev);
+		device_release_driver(dev);
+		return;
 	}
+
+	usb_unbind_claim(iface);
+unlock:
+	device_unlock(dev);
 }
 EXPORT_SYMBOL_GPL(usb_driver_release_interface);
 
