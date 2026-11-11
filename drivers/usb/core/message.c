@@ -1845,6 +1845,7 @@ static void usb_release_interface(struct device *dev)
 	struct usb_interface_cache *intfc =
 			altsetting_to_usb_interface_cache(intf->altsetting);
 
+	usb_put_claim_owner(intf);
 	kref_put(&intfc->ref, usb_release_interface_cache);
 	usb_put_dev(interface_to_usbdev(intf));
 	of_node_put(dev->of_node);
@@ -2269,6 +2270,7 @@ free_interfaces:
 	 */
 	for (i = 0; i < nintf; ++i) {
 		struct usb_interface *intf = cp->interface[i];
+		struct module *claim_owner;
 
 		if (intf->dev.of_node &&
 		    !of_device_is_available(intf->dev.of_node)) {
@@ -2282,12 +2284,16 @@ free_interfaces:
 			dev_name(&intf->dev), configuration,
 			intf->cur_altsetting->desc.bInterfaceNumber);
 		device_enable_async_suspend(&intf->dev);
+		device_lock(&intf->dev);
+		claim_owner = xchg(&intf->claim_owner, NULL);
+		device_unlock(&intf->dev);
 		ret = device_add(&intf->dev);
 		if (ret) {
 			device_lock(&intf->dev);
 			intf->unregistering = 1;
 			device_unlock(&intf->dev);
 		}
+		module_put(claim_owner);
 		if (ret != 0) {
 			dev_err(&dev->dev, "device_add(%s) --> %d\n",
 				dev_name(&intf->dev), ret);

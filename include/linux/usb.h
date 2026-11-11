@@ -213,6 +213,7 @@ enum usb_wireless_status {
  * @dev: driver model's view of this device
  * @usb_dev: if an interface is bound to the USB major, this will point
  *	to the sysfs representation for that device.
+ * @claim_owner: Module reference for an unpublished claim.
  * @reset_ws: Used for scheduling resets from atomic context.
  * @resetting_device: USB core reset the device, so use alt setting 0 as
  *	current; needs bandwidth alloc after reset.
@@ -271,6 +272,7 @@ struct usb_interface {
 
 	struct device dev;		/* interface specific device info */
 	struct device *usb_dev;
+	struct module *claim_owner;
 	struct work_struct reset_ws;	/* for resets in atomic context */
 };
 

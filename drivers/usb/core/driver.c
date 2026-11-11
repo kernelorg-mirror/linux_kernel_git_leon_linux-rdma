@@ -529,6 +529,13 @@ static void usb_shutdown_interface(struct device *dev)
 		driver->shutdown(intf);
 }
 
+void usb_put_claim_owner(struct usb_interface *intf)
+{
+	struct module *owner = xchg(&intf->claim_owner, NULL);
+
+	module_put(owner);
+}
+
 /**
  * usb_driver_claim_interface - bind a driver to an interface
  * @driver: the driver to be bound
@@ -565,6 +572,14 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 	    (dev->of_node && !of_device_is_available(dev->of_node))) {
 		retval = -ENODEV;
 		goto unlock;
+	}
+
+	if (!device_is_registered(dev)) {
+		if (!try_module_get(driver->driver.owner)) {
+			retval = -ENODEV;
+			goto unlock;
+		}
+		iface->claim_owner = driver->driver.owner;
 	}
 
 	dev->driver = &driver->driver;
@@ -619,6 +634,7 @@ static void usb_unbind_claim(struct usb_interface *iface)
 	usb_unbind_interface(dev);
 	dev_set_drvdata(dev, NULL);
 	dev->driver = NULL;
+	usb_put_claim_owner(iface);
 }
 
 /**
@@ -653,6 +669,7 @@ void usb_driver_release_interface(struct usb_driver *driver,
 	if (device_is_bound(dev)) {
 		device_unlock(dev);
 		device_release_driver(dev);
+		usb_put_claim_owner(iface);
 		return;
 	}
 
