@@ -2993,40 +2993,57 @@ static int btusb_recv_event_realtek(struct hci_dev *hdev, struct sk_buff *skb)
 	return hci_recv_frame(hdev, skb);
 }
 
-static void btusb_mtk_claim_iso_intf(struct btusb_data *data)
+#define BTUSB_MTK_ISO_LOCK_TRIES	5
+static int btusb_mtk_claim_iso_intf(struct btusb_data *data)
 {
 	struct btmtk_data *btmtk_data;
-	int err;
+	int err, i;
 
 	if (!data->hdev)
-		return;
+		return 0;
 
 	btmtk_data = hci_get_priv(data->hdev);
 	if (!btmtk_data)
-		return;
+		return 0;
 
 	if (!btmtk_data->isopkt_intf) {
 		bt_dev_err(data->hdev, "Can't claim NULL iso interface");
-		return;
+		return 0;
 	}
 
-	/*
-	 * The function usb_driver_claim_interface() is documented to need
-	 * locks held if it's not called from a probe routine. The code here
-	 * is called from the hci_power_on workqueue, so grab the lock.
-	 */
+	err = usb_autopm_get_interface(data->intf);
+	if (err)
+		goto err_clear_iso_intf;
+
+	/* Disconnect may hold the parent lock while waiting for this work. */
+	for (i = 0; i < BTUSB_MTK_ISO_LOCK_TRIES; i++) {
+		err = usb_lock_device_for_reset(data->udev, data->intf);
+		if (err != -EBUSY)
+			break;
+	}
+	if (err)
+		goto err_put_interface;
+
 	device_lock(&btmtk_data->isopkt_intf->dev);
 	err = usb_driver_claim_interface(&btusb_driver,
 					 btmtk_data->isopkt_intf, data);
 	device_unlock(&btmtk_data->isopkt_intf->dev);
-	if (err < 0) {
-		btmtk_data->isopkt_intf = NULL;
-		bt_dev_err(data->hdev, "Failed to claim iso interface: %d", err);
-		return;
-	}
+	if (err)
+		goto err_unlock;
 
-	set_bit(BTMTK_ISOPKT_OVER_INTR, &btmtk_data->flags);
 	init_usb_anchor(&btmtk_data->isopkt_anchor);
+	set_bit(BTMTK_ISOPKT_OVER_INTR, &btmtk_data->flags);
+	usb_unlock_device(data->udev);
+	usb_autopm_put_interface(data->intf);
+	return 0;
+
+err_unlock:
+	usb_unlock_device(data->udev);
+err_put_interface:
+	usb_autopm_put_interface(data->intf);
+err_clear_iso_intf:
+	bt_dev_err(data->hdev, "Failed to claim iso interface: %d", err);
+	return err;
 }
 
 static void btusb_mtk_release_iso_intf(struct hci_dev *hdev)
@@ -3169,7 +3186,11 @@ static int btusb_mtk_setup(struct hci_dev *hdev)
 	/* Claim ISO data interface and endpoint */
 	if (!test_bit(BTMTK_ISOPKT_OVER_INTR, &btmtk_data->flags)) {
 		btmtk_data->isopkt_intf = usb_ifnum_to_if(data->udev, MTK_ISO_IFNUM);
-		btusb_mtk_claim_iso_intf(data);
+		err = btusb_mtk_claim_iso_intf(data);
+		if (err) {
+			btmtk_data->isopkt_intf = NULL;
+			return err;
+		}
 	}
 
 	err = btmtk_usb_setup(hdev);
