@@ -56,6 +56,7 @@ void device_trust_init_state(struct device *dev)
 		dev->p->trust_state = dev->trust_policy == DEVICE_TRUST_POLICY_BLOCKED ?
 			DEVICE_TRUST_WAITING : DEVICE_TRUST_SELECTABLE;
 }
+EXPORT_SYMBOL_IF_KUNIT(device_trust_init_state);
 
 static int __device_trust_prepare(struct device *dev,
 				  const struct device_driver *drv, bool unrestricted_only)
