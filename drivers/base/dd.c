@@ -1222,12 +1222,11 @@ out_unlock:
 	put_device(dev);
 }
 
-static int __device_attach(struct device *dev, bool allow_async)
+static int __device_attach_locked(struct device *dev, bool allow_async,
+				  bool *async)
 {
 	int ret = 0;
-	bool async = false;
 
-	device_lock(dev);
 	mutex_lock(&dev->p->driver_lock);
 	if (dev->p->dead) {
 		goto out_unlock;
@@ -1265,7 +1264,7 @@ static int __device_attach(struct device *dev, bool allow_async)
 			 */
 			dev_dbg(dev, "scheduling asynchronous probe\n");
 			get_device(dev);
-			async = true;
+			*async = true;
 		} else {
 			pm_request_idle(dev);
 		}
@@ -1275,6 +1274,16 @@ static int __device_attach(struct device *dev, bool allow_async)
 	}
 out_unlock:
 	mutex_unlock(&dev->p->driver_lock);
+	return ret;
+}
+
+static int __device_attach(struct device *dev, bool allow_async)
+{
+	bool async = false;
+	int ret;
+
+	device_lock(dev);
+	ret = __device_attach_locked(dev, allow_async, &async);
 	device_unlock(dev);
 	if (async && !async_schedule_dev_nocall(__device_attach_async_helper, dev)) {
 		put_device(dev);
@@ -1283,6 +1292,23 @@ out_unlock:
 
 	return ret;
 }
+
+/**
+ * device_attach_locked - try to attach a driver with the device locked
+ * @dev: device to attach
+ *
+ * Synchronous device_attach() with the device lock held by the caller.
+ * When called for a USB interface, the parent lock must also be held.
+ * The device lock remains held on return.
+ *
+ * Return: 1 if bound, 0 if no driver bound, or a negative error.
+ */
+int device_attach_locked(struct device *dev)
+{
+	device_lock_assert(dev);
+	return __device_attach_locked(dev, false, NULL);
+}
+EXPORT_SYMBOL_GPL(device_attach_locked);
 
 /**
  * device_attach - try to attach device to a driver.
