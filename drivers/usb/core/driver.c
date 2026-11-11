@@ -540,9 +540,8 @@ static void usb_shutdown_interface(struct device *dev)
  * No device driver should directly modify internal usb_interface or
  * usb_device structure members.
  *
- * Callers must own the device lock, so driver probe() entries don't need
- * extra locking, but other call contexts may need to explicitly claim that
- * lock.
+ * Callers must hold the parent USB device lock, but not the claimed
+ * interface's device lock.
  *
  * Return: 0 on success.
  */
@@ -559,9 +558,13 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 	if (dev->driver)
 		return -EBUSY;
 
+	device_lock(dev);
+
 	/* reject claim if interface is not authorized */
-	if (!iface->authorized)
-		return -ENODEV;
+	if (!iface->authorized) {
+		retval = -ENODEV;
+		goto unlock;
+	}
 
 	dev->driver = &driver->driver;
 	usb_set_intfdata(iface, data);
@@ -602,6 +605,8 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 		pm_runtime_set_suspended(dev);
 	}
 
+unlock:
+	device_unlock(dev);
 	return retval;
 }
 EXPORT_SYMBOL_GPL(usb_driver_claim_interface);

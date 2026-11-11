@@ -3024,10 +3024,8 @@ static int btusb_mtk_claim_iso_intf(struct btusb_data *data)
 	if (err)
 		goto err_put_interface;
 
-	device_lock(&btmtk_data->isopkt_intf->dev);
 	err = usb_driver_claim_interface(&btusb_driver,
 					 btmtk_data->isopkt_intf, data);
-	device_unlock(&btmtk_data->isopkt_intf->dev);
 	if (err)
 		goto err_unlock;
 
