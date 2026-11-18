@@ -1090,6 +1090,13 @@ static int usb_audio_probe(struct usb_interface *intf,
 		atomic_dec(&chip->active);
 		if (!chip->num_interfaces) {
 			usb_audio_disconnect_components(chip);
+			for (i = 0; i < dev->actconfig->desc.bNumInterfaces; i++) {
+				struct usb_interface *iface = dev->actconfig->interface[i];
+
+				if (iface->dev.driver == &usb_audio_driver.driver &&
+				    usb_get_intfdata(iface) == USB_AUDIO_IFACE_UNUSED)
+					usb_driver_release_interface(&usb_audio_driver, iface);
+			}
 			snd_card_free(chip->card);
 		}
 	}
